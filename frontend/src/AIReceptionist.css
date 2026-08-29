@@ -29,6 +29,48 @@ body {
   padding: 24px 20px 40px;
 }
 
+/* Top contact bar */
+.sv-topbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  justify-content: center;
+  background: var(--sv-coral-dark);
+  color: #fff5ec;
+  padding: 9px 20px;
+  border-radius: 14px;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  margin-bottom: 10px;
+}
+
+.sv-topbar-item {
+  white-space: nowrap;
+  opacity: 0.96;
+}
+
+/* Nav strip (services quick menu) */
+.sv-navstrip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 16px;
+  padding: 0 4px;
+}
+
+.sv-navstrip-item {
+  background: #fff1e4;
+  color: var(--sv-coral-dark);
+  border: 1px solid #f7cdb0;
+  padding: 7px 16px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+/* Header */
 .sv-header {
   position: relative;
   overflow: hidden;
@@ -133,6 +175,7 @@ body {
   50% { transform: scale(1.35); box-shadow: 0 0 0 6px rgba(186, 255, 201, 0); }
 }
 
+/* Main layout */
 .sv-main {
   display: grid;
   grid-template-columns: 1fr 360px;
@@ -147,6 +190,7 @@ body {
   }
 }
 
+/* Chat panel */
 .sv-chat-panel {
   background: var(--sv-card);
   border-radius: 26px;
@@ -315,6 +359,7 @@ body {
   cursor: not-allowed;
 }
 
+/* Sidebar */
 .sv-sidebar {
   display: flex;
   flex-direction: column;
@@ -487,5 +532,9 @@ body {
   }
   .sv-chat-panel {
     height: 520px;
+  }
+  .sv-topbar {
+    font-size: 11px;
+    gap: 10px;
   }
 }
