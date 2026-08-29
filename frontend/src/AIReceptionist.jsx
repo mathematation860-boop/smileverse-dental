@@ -1,465 +1,491 @@
-import React, { useState, useEffect, useRef } from 'react';
-import './AIReceptionist.css';
-
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-
-const DEFAULT_CLINIC_INFO = {
-  name: 'SmileVerse Dental',
-  hours: '9 AM - 5 PM (Monday-Friday)',
-  services: [
-    { name: 'Cleaning', price: 150, duration: 45 },
-    { name: 'Root Canal', price: 800, duration: 90 },
-    { name: 'Whitening', price: 200, duration: 60 },
-    { name: 'Filling', price: 250, duration: 45 },
-    { name: 'Extraction', price: 300, duration: 30 },
-    { name: 'Crown', price: 1200, duration: 120 },
-  ],
-  location: '123 Dental Lane, Smile City, SC 12345',
-  phone: '+1-555-SMILE-01',
-  email: 'info@smileverse.com',
-};
-
-const QUICK_QUESTIONS = [
-  'What are your prices?',
-  'What are your hours?',
-  'I want to book an appointment',
-  'Where are you located?',
-];
-
-function AIReceptionist() {
-  const [conversationId] = useState(() => `conv_${Date.now()}`);
-  const [messages, setMessages] = useState([
-    {
-      role: 'assistant',
-      content:
-        "Hi, I'm so glad you're here! 💛 Welcome to SmileVerse Dental. I'm your friendly AI receptionist — think of me as the warm voice at the front desk, just available all day and night. I can help you book a visit, check prices, or answer anything on your mind. What can I do for you today?",
-      timestamp: new Date().toISOString(),
-    },
-  ]);
-  const [inputValue, setInputValue] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [apiStatus, setApiStatus] = useState('checking');
-  const [clinicInfo, setClinicInfo] = useState(DEFAULT_CLINIC_INFO);
-  const [stats, setStats] = useState({ messages: 0, leads: 0, appointments: 0 });
-
-  const [showLeadForm, setShowLeadForm] = useState(false);
-  const [showBookingForm, setShowBookingForm] = useState(false);
-  const [leadForm, setLeadForm] = useState({ name: '', email: '', phone: '', message: '' });
-  const [bookingForm, setBookingForm] = useState({
-    name: '',
-    phone: '',
-    service: 'Cleaning',
-    date: '',
-    time: '10:00 AM',
-  });
-
-  const messagesEndRef = useRef(null);
-
-  useEffect(() => {
-    checkApiHealth();
-    loadClinicInfo();
-    refreshStats();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    scrollToBottom();
-    setStats((prev) => ({ ...prev, messages: messages.length }));
-  }, [messages]);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  const checkApiHealth = async () => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/health`);
-      setApiStatus(res.ok ? 'connected' : 'error');
-    } catch (err) {
-      setApiStatus('error');
-    }
-  };
-
-  const loadClinicInfo = async () => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/clinic-info`);
-      if (res.ok) {
-        const data = await res.json();
-        setClinicInfo((prev) => ({
-          ...prev,
-          name: data.name || prev.name,
-          hours: data.hours || prev.hours,
-          location: data.location || prev.location,
-          phone: data.phone || prev.phone,
-          email: data.email || prev.email,
-        }));
-      }
-    } catch (err) {
-      // keep defaults silently
-    }
-  };
-
-  const refreshStats = async () => {
-    try {
-      const [leadsRes, apptRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/leads`),
-        fetch(`${API_BASE_URL}/api/appointments`),
-      ]);
-      const leadsData = leadsRes.ok ? await leadsRes.json() : [];
-      const apptData = apptRes.ok ? await apptRes.json() : [];
-      setStats((prev) => ({
-        ...prev,
-        leads: Array.isArray(leadsData) ? leadsData.length : 0,
-        appointments: Array.isArray(apptData) ? apptData.length : 0,
-      }));
-    } catch (err) {
-      // non-fatal
-    }
-  };
-
-  const sendMessage = async (textOverride) => {
-    const text = (textOverride ?? inputValue).trim();
-    if (!text || isLoading) return;
-
-    const userMessage = { role: 'user', content: text, timestamp: new Date().toISOString() };
-    const updatedMessages = [...messages, userMessage];
-    setMessages(updatedMessages);
-    setInputValue('');
-    setIsLoading(true);
-
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: text,
-          conversationId,
-          history: updatedMessages,
-        }),
-      });
-
-      if (!res.ok) throw new Error('Request failed');
-      const data = await res.json();
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: data.reply || data.message || "Sorry, I couldn't process that.",
-          timestamp: new Date().toISOString(),
-        },
-      ]);
-    } catch (err) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: "Oh no, I'm having a little trouble connecting right now 💭. Please try again in a moment — I'm not going anywhere!",
-          timestamp: new Date().toISOString(),
-        },
-      ]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleKeyPress = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-  };
-
-  const handleLeadSubmit = async () => {
-    if (!leadForm.name || !leadForm.phone) {
-      alert('Please enter your name and phone number.');
-      return;
-    }
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/leads`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(leadForm),
-      });
-      if (!res.ok) throw new Error('Failed');
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: `Thank you so much, ${leadForm.name}! 💛 I've tucked your details away safely — someone from our team will reach out to you soon.`,
-          timestamp: new Date().toISOString(),
-        },
-      ]);
-      setLeadForm({ name: '', email: '', phone: '', message: '' });
-      setShowLeadForm(false);
-      refreshStats();
-    } catch (err) {
-      alert('Sorry, we could not save your information right now. Please try again.');
-    }
-  };
-
-  const bookAppointment = async () => {
-    if (!bookingForm.name || !bookingForm.phone || !bookingForm.date) {
-      alert('Please fill in your name, phone number, and preferred date.');
-      return;
-    }
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/appointments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(bookingForm),
-      });
-      if (!res.ok) throw new Error('Failed');
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: `🎉 You're all set, ${bookingForm.name}!\n\nService: ${bookingForm.service}\nDate: ${bookingForm.date}\nTime: ${bookingForm.time}\n\nWe can't wait to see your smile at SmileVerse Dental!`,
-          timestamp: new Date().toISOString(),
-        },
-      ]);
-      setBookingForm({ name: '', phone: '', service: 'Cleaning', date: '', time: '10:00 AM' });
-      setShowBookingForm(false);
-      refreshStats();
-    } catch (err) {
-      alert('Sorry, we could not book your appointment right now. Please try again.');
-    }
-  };
-
-  return (
-    <div className="sv-app">
-      <header className="sv-header">
-        <svg className="sv-header-blob sv-blob-1" viewBox="0 0 200 200" aria-hidden="true">
-          <path
-            fill="currentColor"
-            d="M45.3,-58.5C58.4,-49.6,68.4,-35.1,71.8,-19.2C75.2,-3.3,72,13.9,63.8,28.1C55.6,42.3,42.4,53.4,27.4,60.6C12.4,67.8,-4.4,71.1,-20.1,67.6C-35.8,64.1,-50.4,53.8,-59.8,39.9C-69.2,26,-73.4,8.5,-70.7,-7.6C-68,-23.7,-58.4,-38.4,-45.6,-47.5C-32.8,-56.6,-16.4,-60.1,0.5,-60.8C17.4,-61.5,34.8,-59.4,45.3,-58.5Z"
-            transform="translate(100 100)"
-          />
-        </svg>
-        <svg className="sv-header-blob sv-blob-2" viewBox="0 0 200 200" aria-hidden="true">
-          <path
-            fill="currentColor"
-            d="M39.2,-49.8C50.2,-41.6,58,-28.5,61.4,-14.1C64.8,0.3,63.8,16,56.7,28.6C49.6,41.2,36.4,50.7,21.7,56.5C7,62.3,-9.2,64.4,-23.6,60.1C-38,55.8,-50.6,45.1,-58.2,31.4C-65.8,17.7,-68.4,1,-64.9,-14.1C-61.4,-29.2,-51.8,-42.7,-39.3,-50.8C-26.8,-58.9,-13.4,-61.6,0.6,-62.4C14.6,-63.2,28.2,-58,39.2,-49.8Z"
-            transform="translate(100 100)"
-          />
-        </svg>
-        <div className="sv-header-brand">
-          <div className="sv-logo">🦷</div>
-          <div>
-            <h1>{clinicInfo.name || 'SmileVerse Dental'}</h1>
-            <p className="sv-subtitle">Caring for your smile, one visit at a time 💛</p>
-          </div>
-        </div>
-        <div className={`sv-status-badge sv-status-${apiStatus}`}>
-          <span className="sv-status-dot" />
-          {apiStatus === 'connected' && 'Here for you, 24/7'}
-          {apiStatus === 'checking' && 'Getting ready...'}
-          {apiStatus === 'error' && 'Connection Issue'}
-        </div>
-      </header>
-
-      <main className="sv-main">
-        <section className="sv-chat-panel">
-          <div className="sv-messages">
-            {messages.map((msg, idx) => (
-              <div
-                key={idx}
-                className={`sv-message-row ${msg.role === 'user' ? 'sv-row-user' : 'sv-row-bot'}`}
-              >
-                {msg.role !== 'user' && <div className="sv-avatar">🦷</div>}
-                <div className={`sv-bubble ${msg.role === 'user' ? 'sv-bubble-user' : 'sv-bubble-bot'}`}>
-                  {msg.content.split('\n').map((line, i) => (
-                    <React.Fragment key={i}>
-                      {line}
-                      {i < msg.content.split('\n').length - 1 && <br />}
-                    </React.Fragment>
-                  ))}
-                </div>
-              </div>
-            ))}
-            {isLoading && (
-              <div className="sv-message-row sv-row-bot">
-                <div className="sv-avatar">🦷</div>
-                <div className="sv-bubble sv-bubble-bot sv-typing">
-                  <span className="sv-dot" />
-                  <span className="sv-dot" />
-                  <span className="sv-dot" />
-                </div>
-              </div>
-            )}
-            <div ref={messagesEndRef} />
-          </div>
-
-          {messages.length <= 1 && (
-            <div className="sv-quick-replies">
-              {QUICK_QUESTIONS.map((q) => (
-                <button key={q} className="sv-chip" onClick={() => sendMessage(q)}>
-                  {q}
-                </button>
-              ))}
-            </div>
-          )}
-
-          <div className="sv-input-bar">
-            <input
-              type="text"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder="Type your message (Urdu/English)..."
-              disabled={isLoading}
-            />
-            <button className="sv-send-btn" onClick={() => sendMessage()} disabled={isLoading}>
-              ➤
-            </button>
-          </div>
-        </section>
-
-        <aside className="sv-sidebar">
-          <div className="sv-action-buttons">
-            <button
-              className="sv-btn sv-btn-book"
-              onClick={() => {
-                setShowBookingForm(!showBookingForm);
-                setShowLeadForm(false);
-              }}
-            >
-              📅 Book Now
-            </button>
-            <button
-              className="sv-btn sv-btn-save"
-              onClick={() => {
-                setShowLeadForm(!showLeadForm);
-                setShowBookingForm(false);
-              }}
-            >
-              💌 Save Info
-            </button>
-          </div>
-
-          {showBookingForm && (
-            <div className="sv-card sv-form-card">
-              <h3>Let's Get You Booked 🗓️</h3>
-              <input
-                type="text"
-                placeholder="Full Name"
-                value={bookingForm.name}
-                onChange={(e) => setBookingForm({ ...bookingForm, name: e.target.value })}
-              />
-              <input
-                type="text"
-                placeholder="Phone Number"
-                value={bookingForm.phone}
-                onChange={(e) => setBookingForm({ ...bookingForm, phone: e.target.value })}
-              />
-              <select
-                value={bookingForm.service}
-                onChange={(e) => setBookingForm({ ...bookingForm, service: e.target.value })}
-              >
-                {clinicInfo.services.map((s) => (
-                  <option key={s.name} value={s.name}>
-                    {s.name} - ${s.price}
-                  </option>
-                ))}
-              </select>
-              <input
-                type="date"
-                value={bookingForm.date}
-                onChange={(e) => setBookingForm({ ...bookingForm, date: e.target.value })}
-              />
-              <input
-                type="text"
-                placeholder="Preferred Time"
-                value={bookingForm.time}
-                onChange={(e) => setBookingForm({ ...bookingForm, time: e.target.value })}
-              />
-              <button className="sv-btn sv-btn-confirm" onClick={bookAppointment}>
-                Confirm My Visit
-              </button>
-            </div>
-          )}
-
-          {showLeadForm && (
-            <div className="sv-card sv-form-card sv-form-lead">
-              <h3>Stay In Touch 💌</h3>
-              <input
-                type="text"
-                placeholder="Full Name"
-                value={leadForm.name}
-                onChange={(e) => setLeadForm({ ...leadForm, name: e.target.value })}
-              />
-              <input
-                type="email"
-                placeholder="Email Address"
-                value={leadForm.email}
-                onChange={(e) => setLeadForm({ ...leadForm, email: e.target.value })}
-              />
-              <input
-                type="text"
-                placeholder="Phone Number"
-                value={leadForm.phone}
-                onChange={(e) => setLeadForm({ ...leadForm, phone: e.target.value })}
-              />
-              <textarea
-                placeholder="Anything you'd like us to know? (optional)"
-                value={leadForm.message}
-                onChange={(e) => setLeadForm({ ...leadForm, message: e.target.value })}
-              />
-              <button className="sv-btn sv-btn-confirm" onClick={handleLeadSubmit}>
-                Save My Info
-              </button>
-            </div>
-          )}
-
-          <div className="sv-card">
-            <h3>🪥 Our Services</h3>
-            <ul className="sv-list">
-              {clinicInfo.services.map((s) => (
-                <li key={s.name}>
-                  <span>{s.name}</span>
-                  <span className="sv-list-meta">
-                    ${s.price} <em>({s.duration} mins)</em>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div className="sv-card">
-            <h3>💛 Say Hello</h3>
-            <p className="sv-contact-line">📞 {clinicInfo.phone}</p>
-            <p className="sv-contact-line">✉️ {clinicInfo.email}</p>
-            <p className="sv-contact-line">🕐 {clinicInfo.hours}</p>
-            {clinicInfo.location && <p className="sv-contact-line">📍 {clinicInfo.location}</p>}
-          </div>
-
-          <div className="sv-card sv-stats-card">
-            <h3>✨ Today So Far</h3>
-            <div className="sv-stats-grid">
-              <div className="sv-stat">
-                <span className="sv-stat-number">{stats.messages}</span>
-                <span className="sv-stat-label">Messages</span>
-              </div>
-              <div className="sv-stat">
-                <span className="sv-stat-number">{stats.leads}</span>
-                <span className="sv-stat-label">Leads</span>
-              </div>
-              <div className="sv-stat">
-                <span className="sv-stat-number">{stats.appointments}</span>
-                <span className="sv-stat-label">Appointments</span>
-              </div>
-            </div>
-          </div>
-        </aside>
-      </main>
-
-      <footer className="sv-footer">
-        Made with 🧡 for healthier smiles · Powered by Google Gemini
-      </footer>
-    </div>
-  );
+:root {
+  --sv-coral: #e8654f;
+  --sv-coral-dark: #c94f3d;
+  --sv-peach: #f4a261;
+  --sv-gold: #e9b44c;
+  --sv-mint: #6fb98f;
+  --sv-lavender: #a78bc9;
+  --sv-bg: #fff8f0;
+  --sv-card: #fffdfa;
+  --sv-text: #4a3226;
+  --sv-text-muted: #9a8574;
+  --sv-border: #f2e1d1;
 }
 
-export default AIReceptionist;
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  background: var(--sv-bg);
+  color: var(--sv-text);
+}
+
+.sv-app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 20px 40px;
+}
+
+.sv-header {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(135deg, var(--sv-coral) 0%, var(--sv-peach) 100%);
+  color: #fffaf5;
+  padding: 28px 32px;
+  border-radius: 28px;
+  box-shadow: 0 14px 34px rgba(232, 101, 79, 0.28);
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.sv-header-blob {
+  position: absolute;
+  width: 220px;
+  height: 220px;
+  color: rgba(255, 255, 255, 0.12);
+  pointer-events: none;
+}
+
+.sv-blob-1 {
+  top: -80px;
+  right: -40px;
+}
+
+.sv-blob-2 {
+  bottom: -100px;
+  left: -60px;
+  color: rgba(255, 255, 255, 0.08);
+}
+
+.sv-header-brand {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.sv-logo {
+  font-size: 40px;
+  background: rgba(255, 255, 255, 0.22);
+  width: 64px;
+  height: 64px;
+  border-radius: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.25);
+}
+
+.sv-header h1 {
+  margin: 0;
+  font-size: 27px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.sv-subtitle {
+  margin: 5px 0 0;
+  font-size: 14px;
+  color: rgba(255, 250, 245, 0.92);
+  font-weight: 500;
+}
+
+.sv-status-badge {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.2);
+  padding: 9px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.sv-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #ffe9b0;
+}
+
+.sv-status-connected .sv-status-dot {
+  background: #baffc9;
+  animation: sv-heartbeat 1.6s ease-in-out infinite;
+}
+
+.sv-status-error .sv-status-dot {
+  background: #ffb4a8;
+}
+
+@keyframes sv-heartbeat {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(186, 255, 201, 0.6); }
+  50% { transform: scale(1.35); box-shadow: 0 0 0 6px rgba(186, 255, 201, 0); }
+}
+
+.sv-main {
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  gap: 24px;
+  margin-top: 24px;
+  align-items: start;
+}
+
+@media (max-width: 860px) {
+  .sv-main {
+    grid-template-columns: 1fr;
+  }
+}
+
+.sv-chat-panel {
+  background: var(--sv-card);
+  border-radius: 26px;
+  box-shadow: 0 10px 34px rgba(74, 50, 38, 0.08);
+  display: flex;
+  flex-direction: column;
+  height: 640px;
+  overflow: hidden;
+  border: 1px solid var(--sv-border);
+}
+
+.sv-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sv-message-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.sv-row-user {
+  justify-content: flex-end;
+}
+
+.sv-row-bot {
+  justify-content: flex-start;
+}
+
+.sv-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--sv-peach), var(--sv-coral));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(232, 101, 79, 0.3);
+}
+
+.sv-bubble {
+  max-width: 76%;
+  padding: 13px 17px;
+  border-radius: 20px;
+  font-size: 14.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.sv-bubble-user {
+  background: linear-gradient(135deg, var(--sv-coral), var(--sv-coral-dark));
+  color: #fffaf5;
+  border-bottom-right-radius: 6px;
+}
+
+.sv-bubble-bot {
+  background: #fbeee1;
+  color: var(--sv-text);
+  border-bottom-left-radius: 6px;
+}
+
+.sv-typing {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  padding: 15px 19px;
+}
+
+.sv-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--sv-coral);
+  animation: sv-bounce 1.2s infinite ease-in-out;
+}
+
+.sv-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.sv-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes sv-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+
+.sv-quick-replies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 24px 16px;
+}
+
+.sv-chip {
+  background: #fff1e4;
+  color: var(--sv-coral-dark);
+  border: 1px solid #f7cdb0;
+  padding: 9px 15px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.sv-chip:hover {
+  background: var(--sv-coral);
+  color: #fffaf5;
+  transform: translateY(-1px);
+}
+
+.sv-input-bar {
+  display: flex;
+  gap: 10px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--sv-border);
+  background: #fffaf3;
+}
+
+.sv-input-bar input {
+  flex: 1;
+  padding: 12px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--sv-border);
+  font-size: 14px;
+  outline: none;
+  background: #ffffff;
+}
+
+.sv-input-bar input:focus {
+  border-color: var(--sv-coral);
+  box-shadow: 0 0 0 3px rgba(232, 101, 79, 0.14);
+}
+
+.sv-send-btn {
+  background: linear-gradient(135deg, var(--sv-coral), var(--sv-coral-dark));
+  color: #fffaf5;
+  border: none;
+  width: 46px;
+  height: 46px;
+  border-radius: 16px;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.sv-send-btn:hover:not(:disabled) {
+  transform: translateY(-1px) scale(1.03);
+}
+
+.sv-send-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.sv-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sv-action-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.sv-btn {
+  border: none;
+  border-radius: 16px;
+  padding: 14px;
+  font-size: 14.5px;
+  font-weight: 800;
+  cursor: pointer;
+  color: #fffaf5;
+  transition: transform 0.12s ease, box-shadow 0.15s ease;
+}
+
+.sv-btn:hover {
+  transform: translateY(-2px);
+}
+
+.sv-btn-book {
+  background: linear-gradient(135deg, var(--sv-coral), var(--sv-coral-dark));
+  box-shadow: 0 8px 18px rgba(232, 101, 79, 0.3);
+}
+
+.sv-btn-save {
+  background: linear-gradient(135deg, var(--sv-gold), var(--sv-peach));
+  box-shadow: 0 8px 18px rgba(233, 180, 76, 0.3);
+}
+
+.sv-btn-confirm {
+  width: 100%;
+  background: linear-gradient(135deg, var(--sv-mint), #4f9d72);
+  margin-top: 4px;
+  box-shadow: 0 8px 18px rgba(111, 185, 143, 0.3);
+}
+
+.sv-card {
+  background: var(--sv-card);
+  border-radius: 22px;
+  padding: 20px;
+  box-shadow: 0 8px 26px rgba(74, 50, 38, 0.07);
+  border: 1px solid var(--sv-border);
+}
+
+.sv-card h3 {
+  margin: 0 0 14px;
+  font-size: 15px;
+  color: var(--sv-text);
+  font-weight: 800;
+}
+
+.sv-form-card input,
+.sv-form-card select,
+.sv-form-card textarea {
+  width: 100%;
+  padding: 11px 14px;
+  margin-bottom: 10px;
+  border-radius: 14px;
+  border: 1px solid var(--sv-border);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  background: #fffaf3;
+}
+
+.sv-form-card input:focus,
+.sv-form-card select:focus,
+.sv-form-card textarea:focus {
+  border-color: var(--sv-coral);
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(232, 101, 79, 0.12);
+}
+
+.sv-form-card textarea {
+  min-height: 70px;
+  resize: vertical;
+}
+
+.sv-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sv-list li {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13.5px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--sv-border);
+}
+
+.sv-list li:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.sv-list-meta {
+  color: var(--sv-coral-dark);
+  font-weight: 700;
+}
+
+.sv-list-meta em {
+  font-style: normal;
+  font-weight: 400;
+  color: var(--sv-text-muted);
+}
+
+.sv-contact-line {
+  margin: 0 0 10px;
+  font-size: 13.5px;
+  color: var(--sv-text-muted);
+}
+
+.sv-contact-line:last-child {
+  margin-bottom: 0;
+}
+
+.sv-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  text-align: center;
+}
+
+.sv-stat {
+  background: #fff3e6;
+  border-radius: 14px;
+  padding: 12px 4px;
+}
+
+.sv-stat-number {
+  display: block;
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--sv-coral-dark);
+}
+
+.sv-stat-label {
+  display: block;
+  font-size: 11px;
+  color: var(--sv-text-muted);
+  margin-top: 2px;
+}
+
+.sv-footer {
+  text-align: center;
+  margin-top: 28px;
+  font-size: 12.5px;
+  color: var(--sv-text-muted);
+}
+
+@media (max-width: 480px) {
+  .sv-app {
+    padding: 14px;
+  }
+  .sv-header {
+    padding: 20px;
+  }
+  .sv-chat-panel {
+    height: 520px;
+  }
+}
