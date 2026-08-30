@@ -11,6 +11,8 @@ const NAV_ITEMS = [
   { to: '/admin/analytics', label: 'Analytics' },
   { to: '/admin/settings', label: 'Practice Settings' },
   { to: '/admin/calendar', label: 'Calendar' },
+  { to: '/admin/voice', label: 'Voice' },
+  { to: '/admin/call-history', label: 'Call History' },
 ];
 
 export default function AdminLayout() {

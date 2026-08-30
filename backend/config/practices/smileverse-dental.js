@@ -86,6 +86,24 @@ const practice = {
     emailProvider: 'mock', // e.g. future: 'sendgrid' | 'resend'
     smsProvider: 'mock', // e.g. future: 'twilio'
     aiProvider: 'gemini',
+    // Phase 4: which TelephonyProvider services/voice/index.js hands back
+    // for this practice. Exactly like the other integration keys above,
+    // this only matters when `demoMode: false` (see services/voice/index.js
+    // and services/practice/practiceMerge.js — `integrations` can never be
+    // changed from the admin dashboard, only by editing this file).
+    voiceProvider: 'mock', // e.g. future: 'twilio'
+  },
+
+  // Phase 4: which phone number routes an incoming call to THIS practice
+  // (see config/practiceRepository.js's getPracticeIdForPhoneNumber() and
+  // middleware/voicePracticeContext.js). Deliberately sourced from an env
+  // var, never hard-coded — a real Twilio number is assigned per
+  // deployment, not baked into source. Left null until that env var is
+  // set, which is exactly what keeps voice calls a no-op for this practice
+  // until someone deliberately configures a real number (spec §3/§24: no
+  // invented credentials, safe by default).
+  voice: {
+    phoneNumber: process.env.SMILEVERSE_VOICE_PHONE_NUMBER || null,
   },
 
   // NOTE: This is a demo/prototype product. Do not claim HIPAA compliance

@@ -41,6 +41,24 @@ function mockRes(onSettled) {
       onSettled();
       return this;
     },
+    // Phase 4 (voice/TwiML routes): res.type(...).send(...) and
+    // res.sendStatus(...) — additive, same settle-on-response-sent
+    // contract as json()/redirect() above.
+    type(contentType) {
+      this.contentType = contentType;
+      return this;
+    },
+    send(payload) {
+      this.body = payload;
+      onSettled();
+      return this;
+    },
+    sendStatus(code) {
+      this.statusCode = code;
+      this.body = undefined;
+      onSettled();
+      return this;
+    },
   };
   return res;
 }

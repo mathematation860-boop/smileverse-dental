@@ -11,6 +11,8 @@ import HandoffsPage from './pages/HandoffsPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import SettingsPage from './pages/SettingsPage';
 import CalendarPage from './pages/CalendarPage';
+import VoicePage from './pages/VoicePage';
+import CallHistoryPage from './pages/CallHistoryPage';
 import './admin.css';
 
 /** Protects every dashboard route/API route requiring authentication (Phase 3 §2). */
@@ -51,6 +53,8 @@ function AdminRoutes() {
         <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="calendar" element={<CalendarPage />} />
+        <Route path="voice" element={<VoicePage />} />
+        <Route path="call-history" element={<CallHistoryPage />} />
       </Route>
     </Routes>
   );

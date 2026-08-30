@@ -25,6 +25,15 @@ const EMPTY_SLOTS = () => ({
   phone: null,
   email: null,
   language: 'en', // 'en' | 'ur'
+  // Phase 4 (voice channel only): deterministic booking/cancel/reschedule
+  // state-machine fields — see services/voice/voiceBookingFlow.js. Always
+  // null/0 for a web chat conversation, which never sets them.
+  voicePendingAction: null, // null | 'book' | 'cancel' | 'reschedule'
+  voiceStep: null,
+  voiceTargetAppointmentId: null,
+  voiceResolvedDate: null,
+  voiceResolvedTime: null,
+  voiceStepAttempts: 0,
 });
 
 function key(practiceId, conversationId) {

@@ -64,6 +64,10 @@ export const adminApi = {
   getCalendarStatus: () => request('/api/admin/calendar/status'),
   disconnectCalendar: () => request('/api/admin/calendar/disconnect', { method: 'POST' }),
   calendarOauthStartUrl: () => `${API_BASE_URL}/api/admin/calendar/oauth/start`,
+
+  // Phase 4 — voice receptionist status/stats and call history.
+  getVoiceStatus: () => request('/api/admin/voice'),
+  getCallHistory: () => request('/api/admin/call-history'),
 };
 
 export default adminApi;

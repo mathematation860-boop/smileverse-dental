@@ -35,7 +35,20 @@ app.use(
   })
 );
 app.use(express.json({ limit: '200kb' }));
+// Phase 4: Twilio (and any TwiML-webhook telephony provider) POSTs its
+// webhooks as classic form-encoded bodies, not JSON — required for
+// routes/voice.js to ever see CallSid/From/To/SpeechResult/etc in req.body.
+app.use(express.urlencoded({ extended: false, limit: '200kb' }));
 app.use(cookieParser());
+
+// Railway (and most PaaS hosts) terminate TLS in front of this app, so
+// without this, req.protocol/req.ip would report the internal proxy hop
+// instead of the real client. This matters concretely for Phase 4's
+// Twilio webhook signature verification (middleware/voicePracticeContext.js),
+// which must reconstruct the exact public https:// URL Twilio signed
+// against — get it wrong and every real webhook signature "fails" even
+// though nothing was actually forged.
+app.set('trust proxy', true);
 
 // Connect to MongoDB. Disabling command buffering + a short serverSelection
 // timeout means a down/unreachable database fails FAST (milliseconds)
@@ -55,6 +68,14 @@ mongoose
 app.get('/api/health', (req, res) => {
   res.json({ status: 'AI Receptionist Server is running! ✅' });
 });
+
+// Phase 4: voice webhooks are registered BEFORE practiceContext below for
+// the same reason /api/health is — this router resolves its OWN practice
+// (from the dialed number, via middleware/voicePracticeContext.js) and
+// verifies the telephony provider's webhook signature itself. It must
+// never go through the X-Practice-Id-header-based practiceContext
+// middleware, which a phone call has no way to send.
+app.use('/api', require('./routes/voice'));
 
 // Every route after this point knows WHICH practice it's serving —
 // see middleware/practiceContext.js. This is the multi-tenancy boundary:
@@ -86,6 +107,7 @@ app.use('/api', require('./routes/adminAppointments'));
 app.use('/api', require('./routes/adminConversations'));
 app.use('/api', require('./routes/adminHandoffs'));
 app.use('/api', require('./routes/adminCalendarAuth'));
+app.use('/api', require('./routes/adminVoice'));
 
 // Start Server
 app.listen(PORT, () => {

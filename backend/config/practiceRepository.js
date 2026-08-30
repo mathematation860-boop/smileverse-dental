@@ -33,6 +33,45 @@ function listPracticeIds() {
   return Object.keys(practices);
 }
 
+/** Strips everything but digits, so '+1 (555) 000-1111', '1-555-000-1111', and '+15550001111' all compare equal regardless of how either side happened to format the leading '+'/country code punctuation. */
+function normalizePhoneNumber(phoneNumber) {
+  if (!phoneNumber) return '';
+  return String(phoneNumber).replace(/\D/g, '');
+}
+
+/**
+ * Resolves which practice owns an incoming phone number — the ONLY safe
+ * way to identify a practice for a telephony webhook (Phase 4 spec §5:
+ * "never trust caller-supplied practiceId"). A phone call has no header
+ * a caller could forge the way an HTTP request could send a fake
+ * `X-Practice-Id`; the only thing to trust is which of THIS deployment's
+ * own numbers was actually dialed, which Twilio reports in the signed
+ * webhook body's "To" field (see middleware/voicePracticeContext.js).
+ *
+ * Deliberately reads each practice's static base config only (`voice`
+ * is one of the fields practiceMerge.js always takes from the base
+ * config, never an admin override — see that file's header comment), so
+ * this never needs a database round-trip and can never be redirected by
+ * a practice admin's own dashboard settings.
+ *
+ * Returns null if no configured practice's number matches — the caller
+ * (middleware/voicePracticeContext.js) must treat that as "reject this
+ * call", never fall back to a default practice, since guessing would
+ * mean one practice's caller could end up talking to a different
+ * practice's receptionist.
+ */
+function getPracticeIdForPhoneNumber(phoneNumber) {
+  const target = normalizePhoneNumber(phoneNumber);
+  if (!target) return null;
+  for (const practiceId of listPracticeIds()) {
+    const configured = practices[practiceId]?.voice?.phoneNumber;
+    if (configured && normalizePhoneNumber(configured) === target) {
+      return practiceId;
+    }
+  }
+  return null;
+}
+
 /**
  * Phase 3: the static base config above, merged with whatever a practice
  * admin has saved via the dashboard (models/PracticeSettings.js). This is
@@ -64,4 +103,4 @@ async function getPracticeResolved(practiceId) {
   }
 }
 
-module.exports = { getPractice, getPracticeResolved, getDefaultPracticeId, listPracticeIds };
+module.exports = { getPractice, getPracticeResolved, getDefaultPracticeId, listPracticeIds, getPracticeIdForPhoneNumber };

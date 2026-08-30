@@ -9,14 +9,17 @@
  *
  * Deliberately a WHITELIST of overridable fields, not a deep object
  * merge of everything: `demoMode`, `integrations`, `compliance`,
- * `practiceId`, and `emergencyPolicy.emergencyServiceId` always come
- * from the static base config no matter what an override document
+ * `practiceId`, `voice`, and `emergencyPolicy.emergencyServiceId` always
+ * come from the static base config no matter what an override document
  * contains. Those are safety/isolation/architecture invariants (Phase 2
  * demo-mode gating, the emergency-routing target, which practice this
- * even is) that a practice admin must never be able to change from a
- * settings form — see requirement #11 ("the deterministic emergency
- * classifier must remain authoritative") and #15 ("do not accidentally
- * connect the demo practice to a real calendar").
+ * even is; Phase 4 adds which phone number routes to this practice) that
+ * a practice admin must never be able to change from a settings form —
+ * see requirement #11 ("the deterministic emergency classifier must
+ * remain authoritative") and #15 ("do not accidentally connect the demo
+ * practice to a real calendar"). `voice.phoneNumber` follows the same
+ * rule for the same reason: if an admin could edit it, one practice's
+ * dashboard could silently steal another practice's incoming calls.
  */
 
 function isNonEmptyString(v) {
@@ -73,6 +76,7 @@ function mergePracticeConfig(basePractice, overrides) {
   merged.demoMode = basePractice.demoMode;
   merged.integrations = basePractice.integrations;
   merged.compliance = basePractice.compliance;
+  merged.voice = basePractice.voice;
 
   return merged;
 }
