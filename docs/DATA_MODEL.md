@@ -90,9 +90,30 @@ through `backend/repositories/AppointmentRepository.js`.
 | `status` | enum `Confirmed`\|`Rescheduled`\|`Cancelled` | |
 | `isEmergency` | boolean | Set when booked from the emergency flow. |
 | `confirmedAt`, `updatedAt` | Date | |
+| `calendarEventId` | string or `null` | Phase 2: the real Google Calendar event id, set only when this booking was actually confirmed by Google Calendar. `null` for every demo-mode/mock booking. |
+| `calendarProvider` | enum `demo`\|`google` | Which provider actually created this row — `'demo'` for anything booked through the mock scheduler, `'google'` only when a real calendar event backs it. |
 
 Indexes: `{ practiceId: 1, date: 1 }` (availability lookups),
 `{ practiceId: 1, phone: 1 }` (a patient looking up "my appointments").
+
+## CalendarConnection (Phase 2)
+
+**Persisted (MongoDB)** — `backend/models/CalendarConnection.js`, accessed
+only through `backend/repositories/CalendarConnectionRepository.js`. One
+document per practice that has connected a real Google Calendar (`unique`
+index on `practiceId` — see "Multi-tenancy": a practice can have at most
+one, and a lookup always filters by `practiceId`, so there is no code path
+where one practice's request could resolve another's tokens).
+
+| Field | Type | Notes |
+|---|---|---|
+| `practiceId` | string, required, unique, indexed | |
+| `provider` | enum `google` | Room for a second real calendar provider later without a schema change. |
+| `calendarId` | string | Which calendar on that Google account (`'primary'` today). |
+| `connectedEmail` | string or `null` | Human-readable "connected as ..." — never used for auth decisions. |
+| `refreshToken`, `accessToken`, `accessTokenExpiry` | string / string / Date | **`select: false`** in the schema — a normal query never returns these; only `CalendarConnectionRepository.findByPracticeId()` explicitly asks for them. Never sent to the frontend. |
+| `scope` | string | The OAuth scopes actually granted. |
+| `connectedAt`, `updatedAt` | Date | |
 
 No cross-practice leakage: every repository method takes `practiceId` as
 its first argument and every query includes it — there is no code path that

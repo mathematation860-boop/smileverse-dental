@@ -46,6 +46,27 @@ function minutesToLabel(mins) {
   return `${h}:${String(m).padStart(2, '0')} ${ampm}`;
 }
 
+/** Inverse of minutesToLabel: '10:30 AM' -> 630. Returns null if unparseable. */
+function labelToMinutes(label) {
+  if (!label) return null;
+  const match = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i.exec(label.trim());
+  if (!match) return null;
+  let h = Number(match[1]);
+  const m = Number(match[2]);
+  const ampm = match[3].toUpperCase();
+  if (h < 1 || h > 12 || m < 0 || m > 59) return null;
+  if (ampm === 'AM') h = h === 12 ? 0 : h;
+  else h = h === 12 ? 12 : h + 12;
+  return h * 60 + m;
+}
+
+/** '630' minutes -> '10:30' 24-hour "HH:mm", matching practice.hours format. */
+function minutesToHHMM(mins) {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
 /** Weekday (0=Sun..6=Sat) of a 'YYYY-MM-DD' string. Weekday is a property of
  * the calendar date itself, so this deliberately does NOT go through any
  * timezone conversion (that would risk shifting the date at extreme UTC
@@ -135,4 +156,12 @@ module.exports = {
   nextOpenDates,
   minutesToLabel,
   weekdayOfDateString,
+  // Exported for Phase 2's real-calendar provider (services/providers/
+  // GoogleCalendarAppointmentProvider.js), which needs the raw slot grid
+  // and label<->minutes conversions to reason about real busy intervals —
+  // the mock provider above only ever needed the already-composed
+  // getAvailableSlots().
+  allDaySlotMinutes,
+  labelToMinutes,
+  minutesToHHMM,
 };

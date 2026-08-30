@@ -56,6 +56,22 @@ function get_insurance_information(practice, provider) {
   return insuranceService.checkProvider(practice, provider);
 }
 
+/**
+ * Real availability check (Phase 2) — the "check real availability" tool.
+ * Backed by whichever provider this practice is actually running on
+ * (mock in demo mode, real Google Calendar in production — see
+ * services/providers/index.js), so this function's result is exactly as
+ * real as the underlying provider: in production mode it reflects the
+ * practice's actual Google Calendar, including real busy events, real
+ * business hours, and real service duration. Throws CalendarUnavailableError
+ * if a real check could not be performed — callers must not fabricate a
+ * result in that case (see routes/availability.js and routes/appointments.js).
+ */
+async function check_availability(practice, date, { durationMinutes } = {}) {
+  const provider = appointmentProviders.getAppointmentProvider(practice);
+  return provider.getAvailability(practice, date, { durationMinutes });
+}
+
 async function search_appointments(practice, phone) {
   const provider = appointmentProviders.getAppointmentProvider(practice);
   return provider.searchAppointments(practice, phone);
@@ -162,6 +178,7 @@ module.exports = {
   get_hours,
   get_location,
   get_insurance_information,
+  check_availability,
   search_appointments,
   get_patient_appointment,
   create_appointment,

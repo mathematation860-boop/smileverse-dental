@@ -56,6 +56,7 @@ app.use('/api', require('./routes/faqs'));
 app.use('/api', require('./routes/insurance'));
 app.use('/api', require('./routes/handoff'));
 app.use('/api', require('./routes/analytics'));
+app.use('/api', require('./routes/calendarAuth'));
 
 // Start Server
 app.listen(PORT, () => {

@@ -1,6 +1,15 @@
 /**
- * Thin wrapper around the real `googleapis` Calendar v3 client — the ONLY
- * file that actually talks to Google's Calendar API over the network.
+ * Thin wrapper around the real Google Calendar v3 client — the ONLY file
+ * that actually talks to Google's Calendar API over the network.
+ *
+ * Uses the scoped `@googleapis/calendar` package, NOT the monolithic
+ * `googleapis` package — same generated client code, same API shape
+ * (`calendar.freebusy.query`, `calendar.events.insert/patch/delete`), but
+ * a few MB instead of 200+ MB of bundled clients for every other Google
+ * API this app never calls. (The first deploy of this feature used
+ * `googleapis` directly and crashed the production Railway instance —
+ * fixed same day by switching to this + `google-auth-library`, see
+ * googleOAuthClient.js.)
  *
  * GoogleCalendarAppointmentProvider.js depends on an object shaped like
  * this (getBusyIntervals/insertEvent/patchEvent/deleteEvent), not on this
@@ -12,12 +21,12 @@
  * logic separately testable from the actual SDK call.
  */
 
-const { google } = require('googleapis');
+const { calendar_v3 } = require('@googleapis/calendar');
 const googleOAuthClient = require('./googleOAuthClient');
 
 function calendarFor(connection, onTokenRefreshed) {
   const auth = googleOAuthClient.buildAuthorizedClient(connection, onTokenRefreshed);
-  return google.calendar({ version: 'v3', auth });
+  return new calendar_v3.Calendar({ auth });
 }
 
 function createRealCalendarClient() {

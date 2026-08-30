@@ -2,8 +2,27 @@ const express = require('express');
 const tools = require('../tools/receptionistTools');
 const { requireFields, enforceMaxLengths } = require('../middleware/validate');
 const { getAppointmentProvider } = require('../services/providers');
+const { CalendarUnavailableError, SlotUnavailableError } = require('../services/providers/CalendarProviderErrors');
 
 const router = express.Router();
+
+// Shared translation from the typed calendar errors (Phase 2) into a
+// truthful HTTP response — used by every route below that can now hit a
+// real Google Calendar. Never collapses these into the generic 500: a
+// patient/BookingFlow seeing "that time is no longer available" vs
+// "we can't check live availability right now" needs to react differently
+// (pick another time vs. contact the front desk).
+function handleAppointmentError(error, res, genericMessage) {
+  if (error instanceof CalendarUnavailableError) {
+    console.error('Calendar unavailable:', error.reason, error.cause?.message || '');
+    return res.status(503).json({ error: error.message, reason: error.reason });
+  }
+  if (error instanceof SlotUnavailableError) {
+    return res.status(409).json({ error: error.message, reason: error.reason });
+  }
+  console.error(genericMessage, error);
+  return res.status(500).json({ error: genericMessage });
+}
 
 // Book a new appointment.
 router.post('/appointments', enforceMaxLengths(['name', 'phone', 'email']), async (req, res) => {
@@ -34,8 +53,7 @@ router.post('/appointments', enforceMaxLengths(['name', 'phone', 'email']), asyn
       clinic: { name: req.practice.name, phone: req.practice.phone, address: req.practice.address },
     });
   } catch (error) {
-    console.error('Book Appointment Error:', error);
-    res.status(500).json({ error: 'Failed to book appointment' });
+    handleAppointmentError(error, res, 'Failed to book appointment');
   }
 });
 
@@ -73,8 +91,7 @@ router.patch('/appointments/:id', async (req, res) => {
 
     res.json({ success: true, message: 'Appointment rescheduled successfully', data: appointment });
   } catch (error) {
-    console.error('Reschedule Error:', error);
-    res.status(500).json({ error: 'Failed to reschedule appointment' });
+    handleAppointmentError(error, res, 'Failed to reschedule appointment');
   }
 });
 
@@ -87,8 +104,7 @@ router.delete('/appointments/:id', async (req, res) => {
 
     res.json({ success: true, message: 'Appointment cancelled successfully', data: appointment });
   } catch (error) {
-    console.error('Cancel Error:', error);
-    res.status(500).json({ error: 'Failed to cancel appointment' });
+    handleAppointmentError(error, res, 'Failed to cancel appointment');
   }
 });
 

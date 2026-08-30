@@ -4,12 +4,12 @@ import { trackEvent, EVENTS } from '../services/analytics';
 import { useLanguage } from '../i18n/LanguageContext';
 import HandoffPanel from './HandoffPanel';
 
-const WELCOME_EN =
-  "Hi, I'm your AI dental receptionist at SmileVerse Dental — available 24/7. " +
-  "I can answer questions, book or change appointments, check insurance, or connect you with our team. How can I help today?";
-const WELCOME_UR =
-  'السلام علیکم، میں SmileVerse Dental کا AI ریسیپشنسٹ ہوں — 24/7 دستیاب۔ ' +
-  'میں سوالات کے جواب دے سکتا ہوں، اپائنٹمنٹ بنا یا تبدیل کر سکتا ہوں، انشورنس چیک کر سکتا ہوں، یا آپ کو ہماری ٹیم سے ملوا سکتا ہوں۔ آج کیسے مدد کروں؟';
+// Practice-agnostic: the {name} placeholder in t.chat.welcomeTemplate is
+// filled in from practiceConfig.name at mount time, never hard-coded here.
+function buildWelcomeMessage(template, practiceName) {
+  const name = practiceName || 'our practice';
+  return (template || '').replace('{name}', name);
+}
 
 function formatTimestamp(iso) {
   try {
@@ -37,9 +37,13 @@ function ChatPanel({
   scrollTargetRef,
   externalTrigger,
 }) {
-  const { t, language } = useLanguage();
+  const { t } = useLanguage();
   const [messages, setMessages] = useState(() => [
-    { role: 'assistant', content: language === 'ur' ? WELCOME_UR : WELCOME_EN, timestamp: new Date().toISOString() },
+    {
+      role: 'assistant',
+      content: buildWelcomeMessage(t.chat.welcomeTemplate, practiceConfig?.name),
+      timestamp: new Date().toISOString(),
+    },
   ]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);

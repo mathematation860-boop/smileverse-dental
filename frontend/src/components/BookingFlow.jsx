@@ -2,26 +2,54 @@ import React, { useEffect, useMemo, useState } from 'react';
 import api from '../services/api';
 import { trackEvent, EVENTS } from '../services/analytics';
 import { useLanguage } from '../i18n/LanguageContext';
-import { BOOKING_REASONS } from '../config/defaultPracticeConfig';
 import MiniCalendar from './MiniCalendar';
 import ConfirmationCard from './ConfirmationCard';
 
 const STEPS = ['patientType', 'reason', 'date', 'time', 'details', 'confirm'];
 
-// Reason ids that map directly onto a priced backend service; anything not
-// listed here (like "Tooth Pain") isn't a fixed-price line item — the
-// clinic prices it after evaluation, same as Emergency/Other.
-const REASON_TO_SERVICE_ID = {
-  cleaning: 'cleaning',
-  consultation: 'consultation',
-  filling: 'filling',
-  root_canal: 'root_canal',
-  whitening: 'whitening',
-  extraction: 'extraction',
-  crown: 'crown',
-  emergency: 'emergency',
-  other: 'other',
-};
+// Presentation-only button ordering for the reason picker — the actual
+// name/price/duration for each always comes from the live practiceConfig
+// fetched from the backend, never hard-coded here. "tooth_pain" is a
+// symptom-based quick pick with no fixed-price line item (same
+// priced-after-evaluation treatment as Emergency/Other), so it never
+// appears in the practice's service list itself.
+const REASON_DISPLAY_ORDER = [
+  'cleaning', 'consultation', 'tooth_pain', 'filling',
+  'root_canal', 'whitening', 'extraction', 'crown', 'emergency', 'other',
+];
+const TOOTH_PAIN_REASON = { id: 'tooth_pain', name: 'Tooth Pain' };
+
+/**
+ * Builds the reason-picker list from the practice's real configured
+ * services, in a stable preferred order — instead of a separate hard-coded
+ * list that could silently drift from what the clinic actually offers.
+ * Any configured service not covered by REASON_DISPLAY_ORDER (e.g. one
+ * added later) is still appended, not dropped.
+ */
+function buildBookingReasons(services) {
+  const byId = new Map((services || []).map((s) => [s.id, s]));
+  const seen = new Set();
+  const ordered = [];
+
+  REASON_DISPLAY_ORDER.forEach((id) => {
+    if (id === 'tooth_pain') {
+      ordered.push(TOOTH_PAIN_REASON);
+      seen.add(id);
+      return;
+    }
+    const svc = byId.get(id);
+    if (svc) {
+      ordered.push({ id: svc.id, name: svc.name });
+      seen.add(id);
+    }
+  });
+
+  (services || []).forEach((s) => {
+    if (!seen.has(s.id)) ordered.push({ id: s.id, name: s.name });
+  });
+
+  return ordered;
+}
 
 /** Best-effort match of free text like "tomorrow" / "Friday" against known open dates. */
 function resolveDatePreference(text, openDates) {
@@ -76,11 +104,12 @@ function BookingFlow({ practiceConfig, prefill, onClose, onBooked, conversationI
 
   const step = STEPS[stepIndex];
 
-  const reason = useMemo(() => BOOKING_REASONS.find((r) => r.id === reasonId), [reasonId]);
-  const serviceMeta = useMemo(() => {
-    const serviceId = REASON_TO_SERVICE_ID[reasonId];
-    return practiceConfig.services?.find((s) => s.id === serviceId) || null;
-  }, [reasonId, practiceConfig.services]);
+  const bookingReasons = useMemo(() => buildBookingReasons(practiceConfig.services), [practiceConfig.services]);
+  const reason = useMemo(() => bookingReasons.find((r) => r.id === reasonId), [bookingReasons, reasonId]);
+  const serviceMeta = useMemo(
+    () => practiceConfig.services?.find((s) => s.id === reasonId) || null,
+    [reasonId, practiceConfig.services]
+  );
 
   useEffect(() => {
     trackEvent(EVENTS.APPOINTMENT_REQUESTED, conversationId, { serviceId: reasonId });
@@ -141,7 +170,7 @@ function BookingFlow({ practiceConfig, prefill, onClose, onBooked, conversationI
         phone: details.phone.trim(),
         email: details.email.trim() || undefined,
         service: reason?.name || 'Other',
-        serviceId: REASON_TO_SERVICE_ID[reasonId] || null,
+        serviceId: practiceConfig.services?.some((s) => s.id === reasonId) ? reasonId : null,
         patientType,
         reason: reason?.name,
         date: selectedDate,
@@ -277,7 +306,7 @@ function BookingFlow({ practiceConfig, prefill, onClose, onBooked, conversationI
             <div className="sv-step">
               <p className="sv-step-label">{t.booking.stepReason}</p>
               <div className="sv-choice-grid sv-choice-grid-wrap">
-                {BOOKING_REASONS.map((r) => (
+                {bookingReasons.map((r) => (
                   <button
                     type="button"
                     key={r.id}
