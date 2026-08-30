@@ -15,6 +15,11 @@ const appointmentSchema = new mongoose.Schema({
   isEmergency: { type: Boolean, default: false },
   confirmedAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
+  // Phase 2 (Google Calendar): set only when this appointment has a real
+  // calendar event backing it. 'demo' (or missing, for pre-Phase-2 rows)
+  // means it only ever lived in this database — never a real calendar.
+  calendarEventId: { type: String, default: null },
+  calendarProvider: { type: String, enum: ['demo', 'google'], default: 'demo' },
 });
 
 // Every availability lookup filters by practiceId + date — index the pair.
