@@ -65,6 +65,14 @@ function BookingFlow({ practiceConfig, prefill, onClose, onBooked, conversationI
   const [cancelling, setCancelling] = useState(false);
   const [cancelled, setCancelled] = useState(false);
   const [cancelError, setCancelError] = useState('');
+  const [reschedulingUI, setReschedulingUI] = useState(false);
+  const [rescheduleDate, setRescheduleDate] = useState(null);
+  const [rescheduleTime, setRescheduleTime] = useState(null);
+  const [rescheduleSlots, setRescheduleSlots] = useState([]);
+  const [loadingRescheduleSlots, setLoadingRescheduleSlots] = useState(false);
+  const [reschedulingSubmit, setReschedulingSubmit] = useState(false);
+  const [rescheduleError, setRescheduleError] = useState('');
+  const [justRescheduled, setJustRescheduled] = useState(false);
 
   const step = STEPS[stepIndex];
 
@@ -97,6 +105,20 @@ function BookingFlow({ practiceConfig, prefill, onClose, onBooked, conversationI
       .catch(() => setSlots([]))
       .finally(() => setLoadingSlots(false));
   }, [selectedDate]);
+
+  // Reschedule sub-flow: reuses the same availability endpoint the initial
+  // booking step used, just scoped to its own date/time/slots state so it
+  // doesn't disturb the original booking's selectedDate/selectedTime.
+  useEffect(() => {
+    if (!reschedulingUI || !rescheduleDate) return;
+    setLoadingRescheduleSlots(true);
+    setRescheduleTime(null);
+    api
+      .getAvailability(rescheduleDate)
+      .then((data) => setRescheduleSlots(data.slots || []))
+      .catch(() => setRescheduleSlots([]))
+      .finally(() => setLoadingRescheduleSlots(false));
+  }, [reschedulingUI, rescheduleDate]);
 
   const goNext = () => setStepIndex((i) => Math.min(i + 1, STEPS.length - 1));
   const goBack = () => setStepIndex((i) => Math.max(i - 1, 0));
@@ -165,6 +187,45 @@ function BookingFlow({ practiceConfig, prefill, onClose, onBooked, conversationI
       setCancelError(err.message || 'Something went wrong cancelling your appointment.');
     } finally {
       setCancelling(false);
+    }
+  };
+
+  // QA-audit fix: the backend has always had a working reschedule endpoint
+  // (PATCH /api/appointments/:id), but nothing in the UI ever called it —
+  // the Reschedule button never even rendered. This wires it up using the
+  // same date/time picking UI already built for the initial booking step.
+  const handleStartReschedule = () => {
+    setRescheduleError('');
+    setRescheduleDate(null);
+    setRescheduleTime(null);
+    setRescheduleSlots([]);
+    setJustRescheduled(false);
+    setReschedulingUI(true);
+  };
+
+  const handleCancelRescheduleUI = () => {
+    setReschedulingUI(false);
+    setRescheduleError('');
+  };
+
+  const handleConfirmReschedule = async () => {
+    const appointmentId = bookedAppointment?._id || bookedAppointment?.id;
+    if (!appointmentId || !rescheduleDate || !rescheduleTime) return;
+    setRescheduleError('');
+    setReschedulingSubmit(true);
+    try {
+      const res = await api.rescheduleAppointment(appointmentId, {
+        date: rescheduleDate,
+        time: rescheduleTime,
+        conversationId,
+      });
+      setBookedAppointment(res.data);
+      setReschedulingUI(false);
+      setJustRescheduled(true);
+    } catch (err) {
+      setRescheduleError(err.message || 'Something went wrong rescheduling your appointment.');
+    } finally {
+      setReschedulingSubmit(false);
     }
   };
 
@@ -302,20 +363,72 @@ function BookingFlow({ practiceConfig, prefill, onClose, onBooked, conversationI
                   <p className="sv-step-hint">{t.booking.cancelled}</p>
                 </div>
               )}
-              {bookedAppointment && !cancelled && (
-                <ConfirmationCard
-                  appointment={bookedAppointment}
-                  clinic={practiceConfig}
-                  durationMinutes={serviceMeta?.duration}
-                  onCancel={handleCancelBooking}
-                />
+              {bookedAppointment && !cancelled && !reschedulingUI && (
+                <>
+                  {justRescheduled && <p className="sv-step-hint">{t.booking.rescheduled}</p>}
+                  <ConfirmationCard
+                    appointment={bookedAppointment}
+                    clinic={practiceConfig}
+                    durationMinutes={serviceMeta?.duration}
+                    onReschedule={handleStartReschedule}
+                    onCancel={handleCancelBooking}
+                  />
+                </>
               )}
-              {bookedAppointment && !cancelled && cancelling && (
+              {bookedAppointment && !cancelled && !reschedulingUI && cancelling && (
                 <p className="sv-loading-text">{t.chat.loadingConfirmation}</p>
               )}
-              {bookedAppointment && !cancelled && cancelError && (
+              {bookedAppointment && !cancelled && !reschedulingUI && cancelError && (
                 <div className="sv-error-box">
                   <p>{cancelError}</p>
+                </div>
+              )}
+              {bookedAppointment && !cancelled && reschedulingUI && (
+                <div className="sv-card sv-confirmation-card">
+                  <p className="sv-step-label">{t.booking.stepDate}</p>
+                  <MiniCalendar openDates={openDates} selectedDate={rescheduleDate} onSelect={setRescheduleDate} />
+
+                  {rescheduleDate && (
+                    <>
+                      <p className="sv-step-label">{t.booking.stepTime}</p>
+                      {loadingRescheduleSlots && <p className="sv-loading-text">{t.chat.loadingAvailability}</p>}
+                      {!loadingRescheduleSlots && rescheduleSlots.length === 0 && (
+                        <p className="sv-step-hint">{t.booking.noSlots}</p>
+                      )}
+                      <div className="sv-slot-grid">
+                        {rescheduleSlots.map((s) => (
+                          <button
+                            type="button"
+                            key={s.time}
+                            className={`sv-slot-btn ${rescheduleTime === s.time ? 'sv-choice-active' : ''}`}
+                            onClick={() => setRescheduleTime(s.time)}
+                          >
+                            {s.time}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+
+                  {rescheduleError && (
+                    <div className="sv-error-box">
+                      <p>{rescheduleError}</p>
+                    </div>
+                  )}
+
+                  <div className="sv-modal-footer">
+                    <button type="button" className="sv-btn sv-btn-outline" onClick={handleCancelRescheduleUI}>
+                      {t.booking.back}
+                    </button>
+                    <button
+                      type="button"
+                      className="sv-btn sv-btn-confirm"
+                      disabled={!rescheduleDate || !rescheduleTime || reschedulingSubmit}
+                      onClick={handleConfirmReschedule}
+                    >
+                      {reschedulingSubmit ? t.chat.loadingConfirmation : t.booking.confirmButton}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
