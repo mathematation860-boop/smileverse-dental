@@ -18,6 +18,13 @@
  * UI flow calling the REST routes/tools directly, never through
  * AI-fabricated data. Moving to native function-calling is the natural
  * next step (see README "Recommended next integration").
+ *
+ * Testability note: everything that turns the model's raw text into the
+ * structured result this provider returns lives in `parseModelResponse`
+ * below, a pure function with no network/SDK dependency. Tests exercise
+ * that function directly with hand-written "model said X" strings instead
+ * of mocking the Gemini SDK, so this file has no test-only seams baked
+ * into the class itself.
  */
 
 const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
@@ -49,6 +56,22 @@ const SUGGESTED_ACTIONS = [
   'show_insurance',
   'none',
 ];
+
+// Used ONLY when the model's own JSON response cannot be parsed at all —
+// an AI-provider-level failure, not a normal conversational turn.
+const PARSE_FAILURE_REPLY_EN = "Sorry, could you rephrase that? I want to make sure I help with the right thing.";
+
+// Used when the model's reply text mentions a dollar amount that does not
+// match any price actually configured for this practice — a possible
+// hallucination. We never let a fabricated price reach the patient; the
+// structured intent/entities are still trusted (they're constrained by
+// the JSON schema's enums), only the free-text `reply` is swapped out.
+const PRICE_GUARD_FALLBACK_EN =
+  "I want to double-check that price rather than guess — you can see our full, current price list in the Prices section, " +
+  'or I can connect you with our front desk to confirm.';
+const PRICE_GUARD_FALLBACK_UR =
+  'میں اندازہ لگانے کے بجائے قیمت دوبارہ چیک کرنا چاہوں گا — آپ Prices سیکشن میں ہماری مکمل، موجودہ قیمتوں کی فہرست دیکھ سکتے ہیں، ' +
+  'یا میں آپ کو تصدیق کے لیے ہمارے فرنٹ ڈیسک سے ملوا سکتا ہوں۔';
 
 function buildResponseSchema(practice) {
   const serviceIds = practice.services.map((s) => s.id);
@@ -98,6 +121,70 @@ function sentinelToNull(value) {
   return value;
 }
 
+/**
+ * Scans free text for "$<number>" mentions and returns the first one that
+ * does not match any currently-configured service price for this practice
+ * (a likely hallucination), or null if every mentioned amount is real.
+ * Intentionally simple/conservative: it only ever narrows what can slip
+ * through, never rewrites or "corrects" the model's wording.
+ */
+function findPriceMismatch(replyText, practice) {
+  if (!replyText) return null;
+  const validPrices = new Set(
+    (practice.services || [])
+      .filter((s) => s.price !== null && s.price !== undefined)
+      .map((s) => String(s.price))
+  );
+  const matches = replyText.match(/\$\s?\d+(?:\.\d{1,2})?/g) || [];
+  for (const raw of matches) {
+    const amount = raw.replace(/[$\s]/g, '').split('.')[0];
+    if (!validPrices.has(amount)) return raw;
+  }
+  return null;
+}
+
+/**
+ * Pure function: turns the model's raw response text into this provider's
+ * structured result shape. No network/SDK calls happen in here, which is
+ * what makes it directly unit-testable with hand-written JSON strings.
+ */
+function parseModelResponse(rawText, practice) {
+  let parsed;
+  try {
+    parsed = JSON.parse(rawText);
+  } catch (err) {
+    return {
+      language: 'en',
+      intent: 'general',
+      entities: { serviceId: null, datePreference: null, patientType: null, urgency: 'none', insuranceProvider: null },
+      reply: PARSE_FAILURE_REPLY_EN,
+      suggestedActions: ['none'],
+    };
+  }
+
+  const language = parsed.language === 'ur' ? 'ur' : 'en';
+  const intent = INTENTS.includes(parsed.intent) ? parsed.intent : 'general';
+  const entities = {
+    serviceId: sentinelToNull(parsed.entities?.serviceId),
+    datePreference: sentinelToNull(parsed.entities?.datePreference),
+    patientType: sentinelToNull(parsed.entities?.patientType),
+    urgency: parsed.entities?.urgency || 'none',
+    insuranceProvider: sentinelToNull(parsed.entities?.insuranceProvider),
+  };
+  let reply = parsed.reply || "I'm here to help — could you tell me a bit more?";
+  let suggestedActions = Array.isArray(parsed.suggestedActions) && parsed.suggestedActions.length
+    ? parsed.suggestedActions
+    : ['none'];
+
+  const mismatch = findPriceMismatch(reply, practice);
+  if (mismatch) {
+    reply = language === 'ur' ? PRICE_GUARD_FALLBACK_UR : PRICE_GUARD_FALLBACK_EN;
+    suggestedActions = ['show_prices'];
+  }
+
+  return { language, intent, entities, reply, suggestedActions };
+}
+
 class GeminiAIProvider extends AIProvider {
   constructor(apiKey = process.env.GEMINI_API_KEY) {
     super();
@@ -127,37 +214,13 @@ class GeminiAIProvider extends AIProvider {
     const result = await chat.sendMessage(prompt);
     const raw = result.response.text();
 
-    let parsed;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (err) {
-      return {
-        language: 'en',
-        intent: 'general',
-        entities: { serviceId: null, datePreference: null, patientType: null, urgency: 'none', insuranceProvider: null },
-        reply: "Sorry, could you rephrase that? I want to make sure I help with the right thing.",
-        suggestedActions: ['none'],
-      };
-    }
-
-    return {
-      language: parsed.language === 'ur' ? 'ur' : 'en',
-      intent: INTENTS.includes(parsed.intent) ? parsed.intent : 'general',
-      entities: {
-        serviceId: sentinelToNull(parsed.entities?.serviceId),
-        datePreference: sentinelToNull(parsed.entities?.datePreference),
-        patientType: sentinelToNull(parsed.entities?.patientType),
-        urgency: parsed.entities?.urgency || 'none',
-        insuranceProvider: sentinelToNull(parsed.entities?.insuranceProvider),
-      },
-      reply: parsed.reply || "I'm here to help — could you tell me a bit more?",
-      suggestedActions: Array.isArray(parsed.suggestedActions) && parsed.suggestedActions.length
-        ? parsed.suggestedActions
-        : ['none'],
-    };
+    return parseModelResponse(raw, practice);
   }
 }
 
 module.exports = GeminiAIProvider;
 module.exports.INTENTS = INTENTS;
 module.exports.SUGGESTED_ACTIONS = SUGGESTED_ACTIONS;
+module.exports.parseModelResponse = parseModelResponse;
+module.exports.findPriceMismatch = findPriceMismatch;
+module.exports.slotsToKnownInfoBlock = slotsToKnownInfoBlock;

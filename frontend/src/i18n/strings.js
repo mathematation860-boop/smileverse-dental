@@ -46,6 +46,11 @@ const strings = {
       loadingConfirmation: 'Preparing your confirmation...',
       errorReply: "I'm having a little trouble connecting right now. Please try again in a moment.",
       urgentButton: 'Urgent Dental Appointment',
+      // {name} is replaced with practiceConfig.name at render time — never
+      // hard-code a specific practice's name in a component.
+      welcomeTemplate:
+        "Hi, I'm your AI dental receptionist at {name} — available 24/7. " +
+        'I can answer questions, book or change appointments, check insurance, or connect you with our team. How can I help today?',
     },
     handoff: {
       title: 'Talk to a Human',
@@ -169,6 +174,9 @@ const strings = {
       loadingConfirmation: 'تصدیق تیار کی جا رہی ہے...',
       errorReply: 'ابھی رابطے میں تھوڑی دقت ہو رہی ہے۔ براہ کرم دوبارہ کوشش کریں۔',
       urgentButton: 'فوری دانتوں کی اپائنٹمنٹ',
+      welcomeTemplate:
+        'السلام علیکم، میں {name} کا AI ریسیپشنسٹ ہوں — 24/7 دستیاب۔ ' +
+        'میں سوالات کے جواب دے سکتا ہوں، اپائنٹمنٹ بنا یا تبدیل کر سکتا ہوں، انشورنس چیک کر سکتا ہوں، یا آپ کو ہماری ٹیم سے ملوا سکتا ہوں۔ آج کیسے مدد کروں؟',
     },
     handoff: {
       title: 'انسان سے بات کریں',
