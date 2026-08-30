@@ -5,18 +5,35 @@
  * there is exactly one place that ever sees the client secret, and it
  * never leaves the server (see README/.env.example "Security").
  *
+ * Uses `google-auth-library` directly rather than the monolithic
+ * `googleapis` package — `google.auth.OAuth2` from `googleapis` IS this
+ * same library's `OAuth2Client` re-exported, so the behavior is
+ * identical, but `google-auth-library` alone is a few hundred KB instead
+ * of `googleapis`'s 200+ MB of bundled clients for every Google API this
+ * app doesn't use. (A first deploy of this feature with the full
+ * `googleapis` package crashed the production Railway instance — fixed
+ * same day by switching to this + `@googleapis/calendar`, see
+ * googleCalendarClient.js.)
+ *
  * Scope: a single broad `calendar` scope rather than several narrow ones.
  * Google does offer narrower scopes (calendar.events, calendar.freebusy),
  * but this integration needs event create/update/delete AND freebusy
  * reads for the SAME calendar, and splitting that across two scopes only
  * adds a second consent-screen line with no real security benefit for a
  * single connected calendar per practice — worth revisiting if this ever
- * needs to be scoped down for a security review.
+ * needs to be scoped down for a security review. `openid` + `email` are
+ * added so the token exchange also returns an ID token we can read the
+ * connected account's email from (see fetchConnectedEmail) without a
+ * second API call/package.
  */
 
-const { google } = require('googleapis');
+const { OAuth2Client } = require('google-auth-library');
 
-const SCOPES = ['https://www.googleapis.com/auth/calendar', 'https://www.googleapis.com/auth/userinfo.email'];
+const SCOPES = [
+  'https://www.googleapis.com/auth/calendar',
+  'openid',
+  'https://www.googleapis.com/auth/userinfo.email',
+];
 
 function getRedirectUri() {
   return (
@@ -34,7 +51,7 @@ function newOAuth2Client() {
       'Google Calendar OAuth is not configured — set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET (see .env.example).'
     );
   }
-  return new google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET, getRedirectUri());
+  return new OAuth2Client(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET, getRedirectUri());
 }
 
 /** The URL to send a practice admin to in order to grant calendar access. `state` round-trips practiceId + a CSRF nonce. */
@@ -52,16 +69,20 @@ function buildAuthUrl(state) {
 async function exchangeCodeForTokens(code) {
   const client = newOAuth2Client();
   const { tokens } = await client.getToken(code);
-  return tokens; // { access_token, refresh_token, expiry_date, scope, token_type }
+  return tokens; // { access_token, refresh_token, expiry_date, scope, token_type, id_token }
 }
 
-/** The email of the Google account that just authorized us — used only for a human-readable "connected as ..." status, never for auth decisions. */
-async function fetchConnectedEmail(accessToken) {
-  const client = newOAuth2Client();
-  client.setCredentials({ access_token: accessToken });
-  const oauth2 = google.oauth2({ auth: client, version: 'v2' });
-  const { data } = await oauth2.userinfo.get();
-  return data.email || null;
+/** The email of the Google account that just authorized us, read from the ID token — used only for a human-readable "connected as ..." status, never for auth decisions. */
+async function fetchConnectedEmail(idToken) {
+  if (!idToken) return null;
+  try {
+    const client = newOAuth2Client();
+    const ticket = await client.verifyIdToken({ idToken, audience: process.env.GOOGLE_CLIENT_ID });
+    return ticket.getPayload()?.email || null;
+  } catch (err) {
+    console.error('fetchConnectedEmail: could not verify/read ID token:', err.message);
+    return null;
+  }
 }
 
 /**
