@@ -88,6 +88,12 @@ app.get('/api/health', (req, res) => {
 // requests ever reach this router at all.
 app.use('/api/voice', require('./routes/voice'));
 
+// Phase 5: SMS webhooks — the exact same "own sub-path, own practice
+// resolution/signature verification, registered before practiceContext"
+// reasoning as /api/voice above. See routes/smsWebhook.js and
+// middleware/smsPracticeContext.js.
+app.use('/api/sms', require('./routes/smsWebhook'));
+
 // Every route after this point knows WHICH practice it's serving —
 // see middleware/practiceContext.js. This is the multi-tenancy boundary:
 // req.practice/req.practiceId are attached here and used everywhere else
@@ -119,6 +125,17 @@ app.use('/api', require('./routes/adminConversations'));
 app.use('/api', require('./routes/adminHandoffs'));
 app.use('/api', require('./routes/adminCalendarAuth'));
 app.use('/api', require('./routes/adminVoice'));
+app.use('/api', require('./routes/adminNotifications'));
+app.use('/api', require('./routes/adminPMS'));
+
+// Phase 5: the reminder polling loop (services/notifications/reminderScheduler.js)
+// — never started under the test runner, which never requires this file at
+// all (every test imports routers/services directly — see
+// tests/helpers/invokeRoute.js's header comment), but guarded explicitly
+// here too as defense-in-depth documentation of that intent.
+if (process.env.NODE_ENV !== 'test') {
+  require('./services/notifications/reminderScheduler').startReminderScheduler();
+}
 
 // Start Server
 app.listen(PORT, () => {

@@ -28,7 +28,7 @@ const appointmentProviders = require('../services/providers');
 const insuranceService = require('../services/insuranceService');
 const handoffRepository = require('../repositories/HandoffRepository');
 const analyticsRepository = require('../repositories/AnalyticsRepository');
-const { getEmailProvider, getSmsProvider, notifySafely } = require('../services/notifications');
+const notificationService = require('../services/notifications/notificationService');
 
 function get_practice_info(practice) {
   const { practiceId, name, tagline, phone, email, address, website, timezone, hours, demoMode } = practice;
@@ -84,21 +84,22 @@ async function get_patient_appointment(practice, appointmentId) {
 
 async function create_appointment(practice, data) {
   const provider = appointmentProviders.getAppointmentProvider(practice);
+  // The appointment provider is the ONLY source of truth for "did this
+  // booking actually succeed" — if it throws, create_appointment throws
+  // too, and notifyAppointmentConfirmation below is never reached (Phase 5
+  // spec §5: "Do not send confirmation until the appointment itself is
+  // successfully created").
   const appointment = await provider.createAppointment(practice, data);
 
-  notifySafely(() =>
-    getEmailProvider(practice).send({
-      to: data.email || null,
-      subject: `Appointment confirmed — ${practice.name}`,
-      body: `Your ${data.service} appointment is confirmed for ${data.date} at ${data.time}.`,
-    })
-  );
-  notifySafely(() =>
-    getSmsProvider(practice).send({
-      to: data.phone,
-      body: `${practice.name}: your ${data.service} appointment is confirmed for ${data.date} at ${data.time}.`,
-    })
-  );
+  try {
+    await notificationService.notifyAppointmentConfirmation(practice, appointment, { language: data.language || 'en' });
+  } catch (err) {
+    // Belt-and-suspenders: notificationService itself never throws, but a
+    // notification failure must NEVER be able to fail an otherwise-successful
+    // booking (spec §25), so this call site never lets one propagate either.
+    console.error('create_appointment: notification failed (non-fatal, appointment still booked):', err.message);
+  }
+
   await analyticsRepository.logEvent(practice.practiceId, 'appointment_booked', data.conversationId, {
     serviceId: data.serviceId,
     date: data.date,
@@ -112,14 +113,15 @@ async function create_appointment(practice, data) {
 async function reschedule_appointment(practice, appointmentId, { date, time, conversationId }) {
   const provider = appointmentProviders.getAppointmentProvider(practice);
   const appointment = await provider.rescheduleAppointment(practice, appointmentId, { date, time });
+  // A falsy return means the provider did NOT confirm the reschedule —
+  // never send a reschedule confirmation in that case (spec §6).
   if (!appointment) return null;
 
-  notifySafely(() =>
-    getSmsProvider(practice).send({
-      to: appointment.phone,
-      body: `${practice.name}: your appointment has been rescheduled to ${appointment.date} at ${appointment.time}.`,
-    })
-  );
+  try {
+    await notificationService.notifyAppointmentRescheduled(practice, appointment, { language: appointment.language || 'en' });
+  } catch (err) {
+    console.error('reschedule_appointment: notification failed (non-fatal):', err.message);
+  }
   await analyticsRepository.logEvent(practice.practiceId, 'appointment_rescheduled', conversationId, {
     id: appointment._id,
     date,
@@ -132,14 +134,15 @@ async function reschedule_appointment(practice, appointmentId, { date, time, con
 async function cancel_appointment(practice, appointmentId, { conversationId } = {}) {
   const provider = appointmentProviders.getAppointmentProvider(practice);
   const appointment = await provider.cancelAppointment(practice, appointmentId);
+  // A falsy return means the provider did NOT confirm the cancellation —
+  // never send a cancellation confirmation in that case (spec §7).
   if (!appointment) return null;
 
-  notifySafely(() =>
-    getSmsProvider(practice).send({
-      to: appointment.phone,
-      body: `${practice.name}: your appointment on ${appointment.date} has been cancelled.`,
-    })
-  );
+  try {
+    await notificationService.notifyAppointmentCancelled(practice, appointment, { language: appointment.language || 'en' });
+  } catch (err) {
+    console.error('cancel_appointment: notification failed (non-fatal):', err.message);
+  }
   await analyticsRepository.logEvent(practice.practiceId, 'appointment_cancelled', conversationId, { id: appointment._id });
 
   return appointment;
@@ -161,6 +164,15 @@ async function request_human_handoff(practice, { conversationId, reason, type, n
   });
 
   await analyticsRepository.logEvent(practice.practiceId, 'human_handoff_requested', conversationId, { reason, type });
+
+  try {
+    // Clinic-facing notification (spec §15) — notifies the PRACTICE's own
+    // configured contact, never the patient. Never blocks/fails the
+    // handoff itself if it doesn't succeed.
+    await notificationService.notifyHumanHandoff(practice, handoff);
+  } catch (err) {
+    console.error('request_human_handoff: clinic notification failed (non-fatal):', err.message);
+  }
 
   return handoff;
 }

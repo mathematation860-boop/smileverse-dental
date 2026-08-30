@@ -58,6 +58,24 @@ const practiceSettingsSchema = new mongoose.Schema(
     aiConfig: {
       customInstructions: String,
     },
+    // Phase 5: notification channel toggles + reminder lead time only —
+    // smsPhoneNumber/clinicAlertPhone/clinicAlertEmail are never stored
+    // here; they always come from the static base config (see
+    // services/practice/practiceMerge.js's header comment).
+    notifications: {
+      smsEnabled: Boolean,
+      emailEnabled: Boolean,
+      reminderOffsetsHours: [Number],
+    },
+    // Phase 6: PMS ID mappings only — never apiBaseUrl/credentials/clinicNum,
+    // which always come from the static base config + server env vars
+    // (see services/practice/practiceMerge.js's header comment and
+    // services/pms/OpenDentalPMSProvider.js).
+    pms: {
+      serviceMappings: mongoose.Schema.Types.Mixed,
+      providerMappings: mongoose.Schema.Types.Mixed,
+      operatoryMappings: mongoose.Schema.Types.Mixed,
+    },
     updatedBy: { type: String, default: null }, // adminId, for an audit trail
   },
   { timestamps: true }

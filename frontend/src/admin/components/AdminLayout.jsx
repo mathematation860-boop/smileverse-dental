@@ -13,6 +13,9 @@ const NAV_ITEMS = [
   { to: '/admin/calendar', label: 'Calendar' },
   { to: '/admin/voice', label: 'Voice' },
   { to: '/admin/call-history', label: 'Call History' },
+  { to: '/admin/notifications', label: 'Notifications' },
+  { to: '/admin/notification-history', label: 'Notification History' },
+  { to: '/admin/pms', label: 'Open Dental (PMS)' },
 ];
 
 export default function AdminLayout() {

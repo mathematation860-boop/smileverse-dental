@@ -48,24 +48,30 @@ function normalizePhoneNumber(phoneNumber) {
  * own numbers was actually dialed, which Twilio reports in the signed
  * webhook body's "To" field (see middleware/voicePracticeContext.js).
  *
- * Deliberately reads each practice's static base config only (`voice`
- * is one of the fields practiceMerge.js always takes from the base
- * config, never an admin override — see that file's header comment), so
- * this never needs a database round-trip and can never be redirected by
- * a practice admin's own dashboard settings.
+ * Deliberately reads each practice's static base config only (`voice` and
+ * `notifications.smsPhoneNumber` are both fields practiceMerge.js always
+ * takes from the base config, never an admin override — see that file's
+ * header comment), so this never needs a database round-trip and can
+ * never be redirected by a practice admin's own dashboard settings.
+ *
+ * Matches against EITHER `voice.phoneNumber` (Phase 4, incoming calls) OR
+ * `notifications.smsPhoneNumber` (Phase 5, incoming texts) — a real
+ * deployment can point both a phone call and an SMS webhook at the very
+ * same Twilio number, so this is the one shared lookup both
+ * middleware/voicePracticeContext.js and middleware/smsPracticeContext.js
+ * use, rather than two near-duplicate implementations.
  *
  * Returns null if no configured practice's number matches — the caller
- * (middleware/voicePracticeContext.js) must treat that as "reject this
- * call", never fall back to a default practice, since guessing would
- * mean one practice's caller could end up talking to a different
- * practice's receptionist.
+ * must treat that as "reject this request", never fall back to a default
+ * practice, since guessing would mean one practice's caller could end up
+ * talking to a different practice's receptionist.
  */
 function getPracticeIdForPhoneNumber(phoneNumber) {
   const target = normalizePhoneNumber(phoneNumber);
   if (!target) return null;
   for (const practiceId of listPracticeIds()) {
-    const configured = practices[practiceId]?.voice?.phoneNumber;
-    if (configured && normalizePhoneNumber(configured) === target) {
+    const candidates = [practices[practiceId]?.voice?.phoneNumber, practices[practiceId]?.notifications?.smsPhoneNumber];
+    if (candidates.some((configured) => configured && normalizePhoneNumber(configured) === target)) {
       return practiceId;
     }
   }

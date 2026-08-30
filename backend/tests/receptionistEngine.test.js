@@ -47,10 +47,21 @@ test('EMERGENCY BEFORE AI: a life-threatening message short-circuits before any 
   const convRepo = makeFakeConversationRepository();
   const analytics = makeFakeAnalytics();
   let aiCalled = false;
+  // Phase 5 spec §16: never let a slow/hanging notification delay the
+  // emergency response — this fake never resolves, so if understand()
+  // accidentally awaited it, this test would time out.
+  let emergencyAlertCalledWith = null;
+  const notificationService = {
+    notifyEmergencyClinicAlert: async (practice, args) => {
+      emergencyAlertCalledWith = { practice, args };
+      return new Promise(() => {}); // never resolves
+    },
+  };
   const deps = {
     conversationRepository: convRepo,
     analyticsRepository: analytics,
     getAIProvider: () => { aiCalled = true; return { understandAndReply: async () => ({}) }; },
+    notificationService,
   };
 
   const result = await receptionistEngine.understand(
@@ -65,6 +76,8 @@ test('EMERGENCY BEFORE AI: a life-threatening message short-circuits before any 
   assert.ok(result.replyUr);
   assert.deepEqual(result.suggestedActions, ['talk_to_human']);
   assert.ok(analytics.events.some((e) => e.name === 'emergency_request' && e.payload.source === 'keyword'));
+  assert.ok(emergencyAlertCalledWith, 'the clinic emergency alert must be attempted');
+  assert.equal(emergencyAlertCalledWith.args.conversationId, 'c1');
 });
 
 test('NORMAL FAQ: a plain question calls the AI provider and merges entities into slot memory', async () => {

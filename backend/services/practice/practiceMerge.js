@@ -71,6 +71,40 @@ function mergePracticeConfig(basePractice, overrides) {
   // config object at all, so it always comes from the override if set.
   merged.aiConfig = { customInstructions: isNonEmptyString(overrides.aiConfig?.customInstructions) ? overrides.aiConfig.customInstructions : '' };
 
+  // Phase 5: notification preferences are PARTIALLY overridable — an admin
+  // may toggle channels on/off and adjust reminder lead time, but
+  // `smsPhoneNumber`/`clinicAlertPhone`/`clinicAlertEmail` always come from
+  // the base config (same invariant reasoning as `voice.phoneNumber`
+  // above — see this file's header comment).
+  const notifOverrides = overrides.notifications && typeof overrides.notifications === 'object' ? overrides.notifications : {};
+  merged.notifications = {
+    ...basePractice.notifications,
+    ...(typeof notifOverrides.smsEnabled === 'boolean' ? { smsEnabled: notifOverrides.smsEnabled } : {}),
+    ...(typeof notifOverrides.emailEnabled === 'boolean' ? { emailEnabled: notifOverrides.emailEnabled } : {}),
+    ...(Array.isArray(notifOverrides.reminderOffsetsHours) && notifOverrides.reminderOffsetsHours.every((h) => Number.isFinite(h) && h > 0)
+      ? { reminderOffsetsHours: notifOverrides.reminderOffsetsHours }
+      : {}),
+    // NEVER overridable — see file header.
+    smsPhoneNumber: basePractice.notifications?.smsPhoneNumber ?? null,
+    clinicAlertPhone: basePractice.notifications?.clinicAlertPhone ?? null,
+    clinicAlertEmail: basePractice.notifications?.clinicAlertEmail ?? null,
+  };
+
+  // Phase 6: PMS mapping config is PARTIALLY overridable — an admin may
+  // fill in service/provider/operatory mappings from the dashboard (not
+  // secrets, just numeric PMS IDs), but `openDental.apiBaseUrl`/`clinicNum`
+  // always come from the base config/env (same invariant reasoning as
+  // `voice.phoneNumber` above — see this file's header comment).
+  const pmsOverrides = overrides.pms && typeof overrides.pms === 'object' ? overrides.pms : {};
+  merged.pms = {
+    ...basePractice.pms,
+    ...(pmsOverrides.serviceMappings && typeof pmsOverrides.serviceMappings === 'object' ? { serviceMappings: pmsOverrides.serviceMappings } : {}),
+    ...(pmsOverrides.providerMappings && typeof pmsOverrides.providerMappings === 'object' ? { providerMappings: pmsOverrides.providerMappings } : {}),
+    ...(pmsOverrides.operatoryMappings && typeof pmsOverrides.operatoryMappings === 'object' ? { operatoryMappings: pmsOverrides.operatoryMappings } : {}),
+    // NEVER overridable — see file header.
+    openDental: basePractice.pms?.openDental,
+  };
+
   // Invariants: always the base config's values, regardless of overrides.
   merged.practiceId = basePractice.practiceId;
   merged.demoMode = basePractice.demoMode;

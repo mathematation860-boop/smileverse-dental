@@ -221,4 +221,85 @@ function validateAiConfigPatch(patch) {
   return { valid: true, sanitized: { customInstructions: clean } };
 }
 
-module.exports = { validateSettingsPatch, validateAiConfigPatch, stripHtml, isValidTimezone, MAX_LENGTHS };
+/** Phase 5: validates a notification-settings patch (spec §9/§19 — channel toggles + reminder lead time only; never a phone/email destination, which stays a base-config-only invariant — see practiceMerge.js). */
+function validateNotificationSettingsPatch(patch) {
+  if (!patch || typeof patch !== 'object') return { valid: false, errors: ['Request body must be an object.'] };
+  const errors = [];
+  const sanitized = {};
+
+  if (patch.smsEnabled !== undefined) {
+    if (typeof patch.smsEnabled !== 'boolean') errors.push('smsEnabled must be a boolean.');
+    else sanitized.smsEnabled = patch.smsEnabled;
+  }
+  if (patch.emailEnabled !== undefined) {
+    if (typeof patch.emailEnabled !== 'boolean') errors.push('emailEnabled must be a boolean.');
+    else sanitized.emailEnabled = patch.emailEnabled;
+  }
+  if (patch.reminderOffsetsHours !== undefined) {
+    const arr = patch.reminderOffsetsHours;
+    if (!Array.isArray(arr) || arr.length === 0 || arr.length > 5 || !arr.every((h) => Number.isFinite(h) && h > 0 && h <= 336)) {
+      errors.push('reminderOffsetsHours must be a non-empty array (max 5) of positive numbers of hours, each at most 336 (14 days).');
+    } else {
+      sanitized.reminderOffsetsHours = [...new Set(arr)].sort((a, b) => b - a);
+    }
+  }
+
+  if (errors.length > 0) return { valid: false, errors };
+  return { valid: true, sanitized };
+}
+
+/** Phase 6: validates a PMS mapping-settings patch (spec §11/§12/§13) — service/provider/operatory ID mappings ONLY. Never accepts apiBaseUrl, credentials, or clinicNum, which stay base-config/env-only invariants (see practiceMerge.js) — this validator's schema simply never reads them, so passing one through is silently ignored, never persisted. */
+function isPlainObject(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+function isValidExternalId(v) {
+  return typeof v === 'string' ? v.trim().length > 0 && v.length <= 60 : typeof v === 'number' && Number.isFinite(v);
+}
+
+function sanitizeMappingObject(raw, idField, errors, label) {
+  if (raw === undefined) return undefined;
+  if (!isPlainObject(raw)) {
+    errors.push(`${label} must be an object.`);
+    return undefined;
+  }
+  const keys = Object.keys(raw);
+  if (keys.length > 100) {
+    errors.push(`${label} has too many entries (max 100).`);
+    return undefined;
+  }
+  const sanitized = {};
+  for (const key of keys) {
+    const entry = raw[key];
+    if (!isPlainObject(entry) || entry[idField] === undefined) {
+      errors.push(`${label}.${key} must be an object with a "${idField}" field.`);
+      continue;
+    }
+    if (!isValidExternalId(entry[idField])) {
+      errors.push(`${label}.${key}.${idField} must be a non-empty string or number.`);
+      continue;
+    }
+    sanitized[stripHtml(key).slice(0, 60)] = { [idField]: String(entry[idField]).slice(0, 60) };
+  }
+  return sanitized;
+}
+
+function validatePmsSettingsPatch(patch) {
+  if (!patch || typeof patch !== 'object') return { valid: false, errors: ['Request body must be an object.'] };
+  const errors = [];
+  const sanitized = {};
+
+  const serviceMappings = sanitizeMappingObject(patch.serviceMappings, 'openDentalAppointmentTypeNum', errors, 'serviceMappings');
+  if (serviceMappings !== undefined) sanitized.serviceMappings = serviceMappings;
+
+  const providerMappings = sanitizeMappingObject(patch.providerMappings, 'openDentalProvNum', errors, 'providerMappings');
+  if (providerMappings !== undefined) sanitized.providerMappings = providerMappings;
+
+  const operatoryMappings = sanitizeMappingObject(patch.operatoryMappings, 'openDentalOpNum', errors, 'operatoryMappings');
+  if (operatoryMappings !== undefined) sanitized.operatoryMappings = operatoryMappings;
+
+  if (errors.length > 0) return { valid: false, errors };
+  return { valid: true, sanitized };
+}
+
+module.exports = { validateSettingsPatch, validateAiConfigPatch, validateNotificationSettingsPatch, validatePmsSettingsPatch, stripHtml, isValidTimezone, MAX_LENGTHS };

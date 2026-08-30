@@ -40,3 +40,27 @@ test('the SmileVerse demo practice config itself resolves to the mock provider t
   const smileverse = require('../config/practices/smileverse-dental');
   assert.ok(getAppointmentProvider(smileverse) instanceof DemoAppointmentProvider);
 });
+
+// --- Phase 6: a PMS-enabled practice routes through PMSAppointmentProvider
+// instead of the calendar path entirely, checked BEFORE demoMode/calendarProvider
+// (spec §26: a clinic uses either a calendar or a PMS, never both at once).
+const PMSAppointmentProvider = require('../services/pms/pmsAppointmentProvider');
+
+test('PMS ROUTING: integrations.pmsProvider set to anything but "none" routes through PMSAppointmentProvider, regardless of calendarProvider', () => {
+  const practice = { demoMode: true, integrations: { calendarProvider: 'google', pmsProvider: 'mock' } };
+  assert.ok(getAppointmentProvider(practice) instanceof PMSAppointmentProvider);
+});
+
+test('PMS ROUTING: pmsProvider "none" (or unset) never touches the PMS path — zero behavior change from Phase 5', () => {
+  assert.ok(getAppointmentProvider({ demoMode: true, integrations: { calendarProvider: 'demo', pmsProvider: 'none' } }) instanceof DemoAppointmentProvider);
+  assert.ok(getAppointmentProvider({ demoMode: true, integrations: { calendarProvider: 'demo' } }) instanceof DemoAppointmentProvider);
+});
+
+test('PMS ROUTING: demoMode safety is enforced one layer down (services/pms/index.js), not bypassed by routing to the PMS path', () => {
+  // Even though this practice routes to PMSAppointmentProvider, that
+  // adapter's own internal getPMSProvider() call will still return the
+  // mock PMS because demoMode is true — see pmsProviderSelection.test.js
+  // and pmsAppointmentProvider.test.js for the full proof of that.
+  const practice = { demoMode: true, integrations: { pmsProvider: 'openDental' } };
+  assert.ok(getAppointmentProvider(practice) instanceof PMSAppointmentProvider);
+});

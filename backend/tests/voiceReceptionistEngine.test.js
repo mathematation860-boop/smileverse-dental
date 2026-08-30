@@ -50,14 +50,28 @@ function fakeEngine(result) {
   return { understand: async () => result };
 }
 
+/** Never-resolving fake (Phase 5 spec §16) — proves handleTurn() never awaits the clinic alert, so a hanging notification provider could never delay a caller's emergency response. */
+function fakeNotificationService() {
+  const calls = [];
+  return {
+    calls,
+    notifyEmergencyClinicAlert: async (practice, args) => {
+      calls.push({ practice, args });
+      return new Promise(() => {});
+    },
+  };
+}
+
 test('EMERGENCY BEFORE ANYTHING (no flow in progress): short-circuits before the shared AI engine is ever called', async () => {
   const convRepo = makeFakeConversationRepository();
   const analytics = makeFakeAnalytics();
+  const notificationService = fakeNotificationService();
   let engineCalled = false;
   const deps = {
     conversationRepository: convRepo,
     analyticsRepository: analytics,
     receptionistEngine: { understand: async () => { engineCalled = true; return {}; } },
+    notificationService,
   };
 
   const result = await voiceReceptionistEngine.handleTurn(
@@ -71,6 +85,7 @@ test('EMERGENCY BEFORE ANYTHING (no flow in progress): short-circuits before the
   assert.equal(result.reply, emergencyService.LIFE_THREATENING_MESSAGE_EN);
   assert.ok(result.replyUr);
   assert.ok(analytics.events.some((e) => e.name === 'emergency_request' && e.payload.channel === 'voice'));
+  assert.equal(notificationService.calls.length, 1, 'the clinic emergency alert must be attempted exactly once, without blocking this already-returned response');
 });
 
 test('EMERGENCY INTERRUPTS AN IN-PROGRESS BOOKING FLOW: never lets the flow swallow a life-threatening utterance', async () => {
@@ -83,6 +98,7 @@ test('EMERGENCY INTERRUPTS AN IN-PROGRESS BOOKING FLOW: never lets the flow swal
     conversationRepository: convRepo,
     analyticsRepository: analytics,
     voiceBookingFlow: { continueFlow: async () => { flowCalled = true; return { reply: 'x' }; } },
+    notificationService: fakeNotificationService(),
   };
 
   const result = await voiceReceptionistEngine.handleTurn(

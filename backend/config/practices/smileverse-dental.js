@@ -106,6 +106,59 @@ const practice = {
     phoneNumber: process.env.SMILEVERSE_VOICE_PHONE_NUMBER || null,
   },
 
+  // Phase 5: SMS/email notification configuration for THIS practice.
+  // `smsEnabled`/`emailEnabled`/`reminderOffsetsHours` are admin-overridable
+  // (see services/practice/practiceMerge.js) — a practice can turn a whole
+  // channel off or change reminder lead time from the dashboard.
+  // `smsPhoneNumber` follows the same never-admin-overridable rule as
+  // `voice.phoneNumber` above, for the identical reason: it identifies
+  // which of THIS deployment's numbers inbound patient texts arrive on
+  // (see config/practiceRepository.js's getPracticeIdForPhoneNumber and
+  // middleware/smsPracticeContext.js) — an admin being able to edit it
+  // could let one practice's dashboard redirect another practice's texts.
+  // `clinicAlertPhone`/`clinicAlertEmail` are where STAFF (not patients)
+  // are notified of a human handoff/emergency (spec §15/§16); left unset
+  // here so notificationService.js falls back to this practice's own
+  // public phone/email.
+  notifications: {
+    smsEnabled: true,
+    emailEnabled: true,
+    reminderOffsetsHours: [24], // architecture supports more than one, e.g. [48, 24, 2] — see services/notifications/reminderScheduler.js
+    smsPhoneNumber: process.env.SMILEVERSE_SMS_PHONE_NUMBER || null,
+    clinicAlertPhone: null,
+    clinicAlertEmail: null,
+  },
+
+  // Phase 6: Open Dental PMS configuration for THIS practice. Left at its
+  // safe MVP defaults — `integrations.pmsProvider: 'none'` above means
+  // this whole block is inert (services/providers/index.js's factory
+  // never even looks at it) until a deliberate code change turns PMS on
+  // for a specific practice. `apiBaseUrl`/credentials are never stored
+  // here — see services/pms/OpenDentalPMSProvider.js and .env.example
+  // for why (server-side env vars only, spec §4/§21).
+  //
+  // `serviceMappings`/`providerMappings`/`operatoryMappings` ARE
+  // admin-overridable from the dashboard (see
+  // services/practice/practiceMerge.js) — they're not secrets, just
+  // numeric ID lookups a clinic's front-desk staff would fill in after
+  // checking their own Open Dental setup. Left empty here (spec §11:
+  // "if a mapping is missing, do not guess — tell the patient the clinic
+  // needs to confirm, or hand off").
+  pms: {
+    openDental: {
+      // Overridable ONLY by an env var, never by this file being edited
+      // per-deployment or by the admin dashboard — see .env.example.
+      apiBaseUrl: process.env.OPENDENTAL_API_BASE_URL || 'https://api.opendental.com/api/v1',
+      clinicNum: process.env.OPENDENTAL_CLINIC_NUM || null,
+    },
+    // e.g. { cleaning: { openDentalAppointmentTypeNum: '123' }, consultation: { openDentalAppointmentTypeNum: '124' } }
+    serviceMappings: {},
+    // e.g. { default: { openDentalProvNum: '1' } } — omitted entirely means
+    // "ask the PMS's own provider directory and use its first entry."
+    providerMappings: {},
+    operatoryMappings: {},
+  },
+
   // NOTE: This is a demo/prototype product. Do not claim HIPAA compliance
   // or any regulatory certification unless the real infrastructure behind
   // it has actually been reviewed and certified for that. See

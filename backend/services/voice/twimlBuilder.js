@@ -79,4 +79,18 @@ function buildTransfer({ text, transferTo, language }) {
   );
 }
 
-module.exports = { escapeXml, toTwilioLanguage, buildSayAndGather, buildSayAndHangup, buildTransfer };
+/**
+ * Phase 5: a TwiML Messaging Response — the reply Twilio expects from an
+ * inbound-SMS webhook (routes/smsWebhook.js). Lives here rather than a
+ * separate file because it shares the exact same `escapeXml` this file
+ * already tests and uses for voice TwiML — one escape implementation for
+ * every kind of TwiML this app produces.
+ */
+function buildMessagingResponse({ text }) {
+  if (!text) {
+    return '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
+  }
+  return `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(text)}</Message></Response>`;
+}
+
+module.exports = { escapeXml, toTwilioLanguage, buildSayAndGather, buildSayAndHangup, buildTransfer, buildMessagingResponse };

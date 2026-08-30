@@ -68,6 +68,18 @@ export const adminApi = {
   // Phase 4 — voice receptionist status/stats and call history.
   getVoiceStatus: () => request('/api/admin/voice'),
   getCallHistory: () => request('/api/admin/call-history'),
+
+  // Phase 5 — SMS/email notification status, history, and settings.
+  getNotificationsStatus: () => request('/api/admin/notifications'),
+  getNotificationHistory: () => request('/api/admin/notification-history'),
+  getNotificationSettings: () => request('/api/admin/notification-settings'),
+  updateNotificationSettings: (patch) => request('/api/admin/notification-settings', { method: 'PUT', body: JSON.stringify(patch) }),
+
+  // Phase 6 — Open Dental PMS status, connection test, and ID-mapping settings.
+  getPmsStatus: () => request('/api/admin/pms'),
+  testPmsConnection: () => request('/api/admin/pms/test-connection', { method: 'POST' }),
+  getPmsSettings: () => request('/api/admin/pms-settings'),
+  updatePmsSettings: (patch) => request('/api/admin/pms-settings', { method: 'PUT', body: JSON.stringify(patch) }),
 };
 
 export default adminApi;

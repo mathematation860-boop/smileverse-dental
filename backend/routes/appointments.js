@@ -12,7 +12,7 @@ router.post('/appointments', enforceMaxLengths(['name', 'phone', 'email']), asyn
     const missing = requireFields(req.body, ['name', 'phone', 'service', 'date']);
     if (missing) return res.status(400).json({ error: missing });
 
-    const { name, phone, email, service, serviceId, patientType, reason, date, time, isEmergency, conversationId } = req.body;
+    const { name, phone, email, service, serviceId, patientType, reason, date, time, isEmergency, conversationId, smsOptIn, emailOptIn, language } = req.body;
 
     const appointment = await tools.create_appointment(req.practice, {
       name,
@@ -26,6 +26,12 @@ router.post('/appointments', enforceMaxLengths(['name', 'phone', 'email']), asyn
       time,
       isEmergency: !!isEmergency,
       conversationId,
+      // Phase 5: patient communication preferences (spec §19) — default to
+      // opted-in (transactional appointment notifications) unless the
+      // patient explicitly declined; never guessed otherwise.
+      ...(smsOptIn === false ? { smsOptIn: false } : {}),
+      ...(emailOptIn === false ? { emailOptIn: false } : {}),
+      ...(language === 'ur' ? { language: 'ur' } : {}),
     });
 
     res.json({

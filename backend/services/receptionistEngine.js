@@ -44,6 +44,7 @@ const conversationRepository = require('../repositories/ConversationRepository')
 const analyticsRepository = require('../repositories/AnalyticsRepository');
 const emergencyService = require('./emergencyService');
 const { getAIProvider } = require('./ai');
+const notificationService = require('./notifications/notificationService');
 
 // Used only when the AI provider fails AND the deterministic keyword pass
 // found nothing urgent — a plain "something went wrong" a voice caller can
@@ -100,6 +101,15 @@ async function understand({ practice, conversationId, message, channel = 'web' }
         channel,
       });
 
+      // Phase 5 spec §16: attempt a clinic alert ASYNCHRONOUSLY — this is
+      // deliberately NOT awaited, so a slow/unreachable SMS or email
+      // provider can never delay the patient's own emergency guidance
+      // (which has already been fully computed above). notifyEmergencyClinicAlert
+      // itself also never throws, so this can never surface as an
+      // unhandled rejection either.
+      const notify = deps.notificationService || notificationService;
+      notify.notifyEmergencyClinicAlert(practice, { conversationId, channel }).catch(() => {});
+
       return {
         reply: replyEn,
         replyUr,
@@ -154,6 +164,14 @@ async function understand({ practice, conversationId, message, channel = 'web' }
         source: 'ai',
         channel,
       });
+      // Same asynchronous, non-blocking clinic alert as the keyword path
+      // above — only for genuinely life-threatening severity (an "urgent"
+      // dental issue like a bad toothache is a same-day-booking case, not
+      // a clinic-paging emergency).
+      if (finalUrgency === 'life_threatening') {
+        const notify = deps.notificationService || notificationService;
+        notify.notifyEmergencyClinicAlert(practice, { conversationId, channel }).catch(() => {});
+      }
     }
     if (result.intent === 'human_handoff') {
       await analytics.logEvent(practice.practiceId, 'human_handoff_requested', conversationId, {

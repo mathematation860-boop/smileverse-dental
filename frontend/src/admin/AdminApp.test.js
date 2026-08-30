@@ -107,3 +107,47 @@ test('LOGIN: successful login reaches the dashboard and renders real (zeroed) da
   // A zero-state metric renders as an actual "0", never invented data.
   expect(screen.getAllByText('0').length).toBeGreaterThan(0);
 });
+
+test('PMS PAGE (Phase 6): an authenticated visit to /admin/pms in Demo Mode shows "Demo Mode — Open Dental is not connected", never a fake connected status', async () => {
+  mockFetchSequence([
+    { status: 200, body: { admin: { id: 'a1', name: 'Alice', email: 'alice@a.com', role: 'practice_admin', practiceId: 'practice-a' } } }, // /admin/me
+    {
+      status: 200,
+      body: {
+        pmsEnabled: true,
+        demoMode: true,
+        providerName: 'mock',
+        status: 'demo',
+        statusMessage: 'Demo Mode — Open Dental is not connected.',
+        providerConfigured: false,
+        lastSuccessfulTestAt: null,
+        mappings: { serviceMappingCount: 1, providerMappingCount: 0, operatoryMappingCount: 0 },
+      },
+    }, // GET /admin/pms
+    { status: 200, body: { serviceMappings: { cleaning: { openDentalAppointmentTypeNum: '12' } }, providerMappings: {}, operatoryMappings: {} } }, // GET /admin/pms-settings
+  ]);
+  renderAdminApp('/admin/pms');
+
+  await waitFor(() => expect(screen.getByRole('heading', { name: /open dental \(pms\)/i })).toBeInTheDocument());
+  expect(screen.getByText(/demo mode — open dental is not connected/i)).toBeInTheDocument();
+  // Never a fabricated "Connected" status while demoMode is on.
+  expect(screen.queryByText(/^status: connected\.?$/i)).not.toBeInTheDocument();
+  // The real mapping count from the API renders, never an invented number.
+  expect(screen.getByText(/1 service mapping\(s\)/i)).toBeInTheDocument();
+});
+
+test('PMS PAGE (Phase 6): Test Connection never displays the provider\'s API credentials, even if a field with a credential-shaped name were present in the response', async () => {
+  mockFetchSequence([
+    { status: 200, body: { admin: { id: 'a1', name: 'Alice', email: 'alice@a.com', role: 'practice_admin', practiceId: 'practice-a' } } }, // /admin/me
+    { status: 200, body: { pmsEnabled: true, demoMode: true, providerName: 'mock', status: 'demo', statusMessage: 'Demo Mode — Open Dental is not connected.', providerConfigured: false, lastSuccessfulTestAt: null, mappings: { serviceMappingCount: 0, providerMappingCount: 0, operatoryMappingCount: 0 } } },
+    { status: 200, body: { serviceMappings: {}, providerMappings: {}, operatoryMappings: {} } },
+    { status: 200, body: { success: true, provider: 'mock', latencyMs: 7 } }, // POST test-connection — deliberately never includes a credential field
+    { status: 200, body: { pmsEnabled: true, demoMode: true, providerName: 'mock', status: 'demo', statusMessage: 'Demo Mode — Open Dental is not connected.', providerConfigured: false, lastSuccessfulTestAt: new Date().toISOString(), mappings: { serviceMappingCount: 0, providerMappingCount: 0, operatoryMappingCount: 0 } } }, // status refresh after test
+  ]);
+  renderAdminApp('/admin/pms');
+  await waitFor(() => expect(screen.getByRole('button', { name: /test connection/i })).toBeInTheDocument());
+
+  fireEvent.click(screen.getByRole('button', { name: /test connection/i }));
+  await waitFor(() => expect(screen.getByText(/connected \(7ms\)/i)).toBeInTheDocument());
+  expect(screen.queryByText(/api[_-]?key/i)).not.toBeInTheDocument();
+});

@@ -13,6 +13,9 @@ import SettingsPage from './pages/SettingsPage';
 import CalendarPage from './pages/CalendarPage';
 import VoicePage from './pages/VoicePage';
 import CallHistoryPage from './pages/CallHistoryPage';
+import NotificationsPage from './pages/NotificationsPage';
+import NotificationHistoryPage from './pages/NotificationHistoryPage';
+import PMSSettingsPage from './pages/PMSSettingsPage';
 import './admin.css';
 
 /** Protects every dashboard route/API route requiring authentication (Phase 3 §2). */
@@ -55,6 +58,9 @@ function AdminRoutes() {
         <Route path="calendar" element={<CalendarPage />} />
         <Route path="voice" element={<VoicePage />} />
         <Route path="call-history" element={<CallHistoryPage />} />
+        <Route path="notifications" element={<NotificationsPage />} />
+        <Route path="notification-history" element={<NotificationHistoryPage />} />
+        <Route path="pms" element={<PMSSettingsPage />} />
       </Route>
     </Routes>
   );

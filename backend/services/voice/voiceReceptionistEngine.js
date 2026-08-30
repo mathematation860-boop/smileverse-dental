@@ -56,6 +56,7 @@ const emergencyService = require('../emergencyService');
 const receptionistEngine = require('../receptionistEngine');
 const voiceBookingFlow = require('./voiceBookingFlow');
 const tools = require('../../tools/receptionistTools');
+const notificationService = require('../notifications/notificationService');
 
 const INTENT_TO_FLOW_ACTION = {
   book_appointment: 'book',
@@ -127,6 +128,13 @@ async function handleTurn({ practice, conversationId, callerPhone, utteranceText
       // only guards against a fully-mocked `deps.analyticsRepository` in
       // tests throwing synchronously.
     }
+    // Phase 5 spec §16: asynchronous, non-blocking clinic alert — never
+    // awaited, so a slow/unreachable SMS/email provider can never delay
+    // the caller's own emergency guidance, which is returned immediately
+    // below regardless of how this resolves.
+    const notify = deps.notificationService || notificationService;
+    notify.notifyEmergencyClinicAlert(practice, { conversationId, channel: 'voice', callSid: conversationId }).catch(() => {});
+
     return {
       reply: emergency.LIFE_THREATENING_MESSAGE_EN,
       replyUr: emergency.LIFE_THREATENING_MESSAGE_UR,
