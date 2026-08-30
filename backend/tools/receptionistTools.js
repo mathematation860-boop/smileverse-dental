@@ -145,7 +145,7 @@ async function cancel_appointment(practice, appointmentId, { conversationId } = 
   return appointment;
 }
 
-async function request_human_handoff(practice, { conversationId, reason, type, name, phone, message }) {
+async function request_human_handoff(practice, { conversationId, reason, type, name, phone, message, urgency }) {
   const handoff = await handoffRepository.create(practice.practiceId, {
     conversationId,
     reason: reason || 'uncertain',
@@ -153,6 +153,11 @@ async function request_human_handoff(practice, { conversationId, reason, type, n
     name,
     phone,
     message,
+    // Real, not invented: whatever emergencyService.classifyUrgency (or the
+    // AI's own urgency read) already determined for this conversation, if
+    // any — see routes/handoff.js for where this is looked up. Never
+    // guessed here.
+    urgency: urgency === 'life_threatening' || urgency === 'urgent' ? urgency : 'normal',
   });
 
   await analyticsRepository.logEvent(practice.practiceId, 'human_handoff_requested', conversationId, { reason, type });

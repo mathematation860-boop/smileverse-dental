@@ -12,4 +12,5 @@ module.exports = {
   getConversation: store.getConversation,
   appendMessage: store.appendMessage,
   updateSlots: store.updateSlots,
+  listConversations: store.listConversations,
 };

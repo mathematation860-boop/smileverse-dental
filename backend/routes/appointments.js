@@ -2,27 +2,9 @@ const express = require('express');
 const tools = require('../tools/receptionistTools');
 const { requireFields, enforceMaxLengths } = require('../middleware/validate');
 const { getAppointmentProvider } = require('../services/providers');
-const { CalendarUnavailableError, SlotUnavailableError } = require('../services/providers/CalendarProviderErrors');
+const { handleAppointmentError } = require('../utils/appointmentErrorResponse');
 
 const router = express.Router();
-
-// Shared translation from the typed calendar errors (Phase 2) into a
-// truthful HTTP response — used by every route below that can now hit a
-// real Google Calendar. Never collapses these into the generic 500: a
-// patient/BookingFlow seeing "that time is no longer available" vs
-// "we can't check live availability right now" needs to react differently
-// (pick another time vs. contact the front desk).
-function handleAppointmentError(error, res, genericMessage) {
-  if (error instanceof CalendarUnavailableError) {
-    console.error('Calendar unavailable:', error.reason, error.cause?.message || '');
-    return res.status(503).json({ error: error.message, reason: error.reason });
-  }
-  if (error instanceof SlotUnavailableError) {
-    return res.status(409).json({ error: error.message, reason: error.reason });
-  }
-  console.error(genericMessage, error);
-  return res.status(500).json({ error: genericMessage });
-}
 
 // Book a new appointment.
 router.post('/appointments', enforceMaxLengths(['name', 'phone', 'email']), async (req, res) => {

@@ -197,9 +197,10 @@ Not done, and worth doing before this handles real patient data:
 - A real schema-validation library (Zod/Joi) instead of the hand-rolled
   `validate.js` — fine for today's small set of fields, but doesn't scale
   well to more complex request bodies.
-- Authenticated/admin-only routes — there is no admin surface yet, but
-  `GET /api/analytics-summary` and similar operational endpoints are
-  currently open; they should require auth once an admin dashboard exists.
+- ~~Authenticated/admin-only routes~~ — **done in Phase 3**: every
+  operational/admin endpoint (`/api/admin/*`) now requires a real session
+  (see §13). Endpoints that existed before Phase 3 and were never meant to
+  be admin-only (the public receptionist's own routes) are unchanged.
 - A real secrets manager for production deployment rather than plain
   environment variables.
 
@@ -392,6 +393,99 @@ to change shape — only `services/providers/index.js`'s factory switch did:
   stopgap — enough to stop a random visitor from connecting an arbitrary
   Google account to a practice, but a real per-practice admin-auth system
   is the correct fix before onboarding real practices self-serve.
+
+## 13. Phase 3: admin authentication + clinic dashboard
+
+Replaces the `CALENDAR_ADMIN_SECRET` shared-secret stopgap flagged in §12
+with real per-practice admin accounts, and adds the first version of a
+clinic management dashboard on top of data that already existed.
+
+- **Authentication:** `AdminUser` (MongoDB, `models/AdminUser.js`) —
+  practice-scoped (`practiceId` + `email` unique per practice, not
+  globally), `bcryptjs`-hashed passwords (`select: false` by default, so a
+  stray `.find()` can never leak a hash), roles `practice_admin` /
+  `super_admin`. There is no public sign-up endpoint by design — create
+  the first admin with `node scripts/createAdmin.js --practiceId=... 
+  --name=... --email=... --password=... [--role=super_admin]` (re-running
+  it for the same email resets the password, so it also works as a
+  password-reset tool).
+- **Sessions:** a signed JWT (`services/auth/sessionTokens.js`,
+  `ADMIN_JWT_SECRET`) carried in an httpOnly, `sameSite: lax` cookie — not
+  readable by frontend JS (XSS-resistant), 12h expiry. Login is rate
+  limited per practice+email (`services/auth/loginRateLimiter.js`, 5
+  attempts / 15 min lockout).
+- **Practice isolation, concretely:** `middleware/authMiddleware.js`'s
+  `requireAuth()` resolves `req.practice`/`req.practiceId` ONLY from the
+  authenticated admin's own database row (via the session token's
+  `adminId`) — never from the `X-Practice-Id` header/query param the
+  public routes use. Every `/api/admin/*` route reads `req.practiceId` the
+  same way every other repository in this app already did (see §3), so
+  Practice A's admin literally cannot construct a request that touches
+  Practice B's data — there's no header to forge.
+- **Practice Settings are now real and persisted:** `PracticeSettings`
+  (MongoDB) stores admin-edited overrides; `services/practice/
+  practiceMerge.js` merges them onto the static base config from a
+  whitelist of editable fields — `demoMode`, `integrations`,
+  `compliance`, and `emergencyPolicy.emergencyServiceId` are never
+  overridable, no matter what a request sends. Every request (public and
+  admin) resolves through this merge now (`practiceContext.js` is async),
+  so a saved settings change takes effect on the AI receptionist
+  immediately, with a fallback to the static config if the database read
+  fails.
+- **AI Configuration is additive-only:** a single `customInstructions`
+  free-text field, HTML-stripped and length-capped
+  (`services/practice/settingsValidation.js`), appended to the system
+  prompt AFTER every safety/factual rule and explicitly labeled
+  non-authoritative for safety (`config/promptBuilder.js`). The actual
+  emergency classifier (`services/emergencyService.js`) is deterministic,
+  runs before the AI is even called, and never reads the practice config
+  at all — there is no code path from this field to that logic.
+- **Google Calendar admin access:** `routes/adminCalendarAuth.js` exposes
+  session-authenticated `/api/admin/calendar/status|oauth/start|disconnect`
+  — this is what the dashboard's Calendar page actually uses now.
+  `routes/calendarAuth.js`'s original `CALENDAR_ADMIN_SECRET`-gated routes
+  are unchanged, kept only as a non-interactive/ops fallback. The OAuth
+  *callback* is still the one shared route for both flows (Google always
+  redirects there; the practiceId comes from the signed, single-use
+  `state` nonce either way — see §12).
+- **Dashboard:** a `/admin` React app (`frontend/src/admin/`, its own
+  router, its own CSS reusing the existing `--sv-*` design tokens) with
+  Dashboard/Appointments/Patients/Conversations/Handoffs/Analytics/
+  Practice Settings/Calendar/Logout. Every number is a real query scoped
+  to the logged-in admin's practice — an empty database shows `0`, never a
+  placeholder. Appointment view/cancel/reschedule call the exact same
+  `tools/receptionistTools.js` functions the AI/public booking flow uses
+  (no duplicated booking logic). "Patients" and Conversation-level
+  appointment/handoff status are derived from existing appointment/
+  analytics-event/handoff data, not a new invented data model.
+- **Security review highlights:** no password is ever stored or logged in
+  plaintext; no OAuth token or password hash ever appears in any API
+  response (checked directly against the built frontend bundle — see the
+  project's own delivery notes); CORS runs with `credentials: true` and
+  reflects the request's real Origin rather than a literal `*` (required
+  for the cookie to work at all cross-origin); every admin route is
+  behind `requireAuth()`; login is rate-limited; every settings input is
+  HTML-stripped and validated before it's persisted. **Not done, flagged
+  honestly:** no IP-based rate limiting (only per practice+email); no CSRF
+  token beyond `sameSite: lax` + same-origin fetch from the dashboard SPA;
+  no audit log of admin actions; `super_admin` exists as a role and is
+  enforceable via `requireRole()` but has no cross-practice UI yet (out of
+  scope for this phase, on purpose).
+- **Demo Mode is unaffected:** `demoMode` is a base-config invariant that
+  `practiceMerge.js` can never override (see above), so nothing an admin
+  does in the dashboard can accidentally connect the demo practice to a
+  real calendar.
+- **Tests:** 187 backend tests (`node --test`) covering — among the
+  pre-existing Phase 1/2 suite — login success/invalid/disabled/locked,
+  logout, `/admin/me` protection, practice isolation (an admin from
+  Practice A never sees/affects Practice B's appointments, handoffs,
+  settings, or calendar connection — tested at both the middleware and
+  the route level with two fake practices), settings validation/merge
+  (including that unsafe HTML/script payloads are rejected), dashboard
+  data being computed from real repository queries, and handoff status
+  transitions. Frontend: 5 tests (login states, protected-route redirect,
+  a successful login reaching real dashboard data). Production build
+  passes for both.
 
 ---
 

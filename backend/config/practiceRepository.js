@@ -33,4 +33,35 @@ function listPracticeIds() {
   return Object.keys(practices);
 }
 
-module.exports = { getPractice, getDefaultPracticeId, listPracticeIds };
+/**
+ * Phase 3: the static base config above, merged with whatever a practice
+ * admin has saved via the dashboard (models/PracticeSettings.js). This is
+ * the ONLY function that should be used to resolve "the practice" for any
+ * request from here on (see middleware/practiceContext.js and
+ * middleware/authMiddleware.js) — getPractice() above still exists
+ * because scripts/tests that only need the static seed (e.g. "does this
+ * practiceId exist at all") shouldn't need a database connection for that.
+ *
+ * Required to degrade gracefully: if the settings lookup fails (DB down,
+ * not yet connected), this falls back to the static base config rather
+ * than failing the request — same "never let an optional layer break a
+ * request that would otherwise succeed" rule as AnalyticsRepository.
+ */
+async function getPracticeResolved(practiceId) {
+  const base = getPractice(practiceId);
+  if (!base) return null;
+
+  try {
+    // Required late (not at module top) to avoid a hard circular-require
+    // between config/ and repositories/ at startup.
+    const practiceSettingsRepository = require('../repositories/PracticeSettingsRepository');
+    const { mergePracticeConfig } = require('../services/practice/practiceMerge');
+    const overrides = await practiceSettingsRepository.get(practiceId);
+    return mergePracticeConfig(base, overrides);
+  } catch (err) {
+    console.error(`getPracticeResolved(${practiceId}): falling back to base config —`, err.message);
+    return base;
+  }
+}
+
+module.exports = { getPractice, getPracticeResolved, getDefaultPracticeId, listPracticeIds };

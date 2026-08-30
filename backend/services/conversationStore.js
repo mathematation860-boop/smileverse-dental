@@ -66,8 +66,24 @@ function updateSlots(practiceId, conversationId, partialSlots = {}) {
   return conv.slots;
 }
 
+/**
+ * All conversations for one practice, newest first (Phase 3 admin
+ * Conversations list — see repositories/ConversationRepository.js and
+ * routes/adminDashboard.js). Additive, read-only — never touches
+ * existing behavior. Same caveat as the rest of this store: in-memory,
+ * so this only reflects conversations since the process last restarted.
+ */
+function listConversations(practiceId) {
+  const results = [];
+  for (const conv of conversations.values()) {
+    if (conv.practiceId === practiceId) results.push(conv);
+  }
+  return results.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+}
+
 module.exports = {
   getConversation,
   appendMessage,
   updateSlots,
+  listConversations,
 };

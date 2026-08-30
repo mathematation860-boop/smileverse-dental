@@ -1,18 +1,24 @@
 /**
- * Google Calendar OAuth connect flow — an admin/setup action performed
- * once per practice by whoever runs it, NOT a patient-facing feature.
- * Deliberately has no UI (see the Phase 2 report: "do not redesign the
- * UI" was taken literally — connecting a calendar is a raw URL an admin
- * visits, same category of action as editing a practice's config file).
+ * Google Calendar OAuth connect flow.
  *
- * Security note (documented honestly rather than pretended away): this
- * app has no admin login/session system at all. Without one, anything
- * reachable by URL is reachable by anyone who has the URL. The
- * OAuth-*start* endpoint is gated by a shared CALENDAR_ADMIN_SECRET env
- * var as a stopgap — good enough to stop a random visitor from
- * connecting an arbitrary Google account as "the practice's calendar",
- * but a real admin-auth system is the correct long-term fix and is
- * flagged as a production blocker in the Phase 2 report.
+ * Phase 3 update: the dashboard's Calendar page (§4/§12) now uses
+ * routes/adminCalendarAuth.js instead of this file's "start"/"status"/
+ * "disconnect" routes — that version is gated by real admin session auth
+ * (middleware/authMiddleware.js) rather than the CALENDAR_ADMIN_SECRET
+ * shared secret below, and resolves practiceId from the authenticated
+ * admin rather than a header, closing the isolation gap a shared secret
+ * inherently has (anyone with the secret could act on ANY practiceId a
+ * header claimed). The routes below are kept, unmodified, as a
+ * documented fallback for non-interactive/ops use only — e.g.
+ * connecting a calendar via a direct URL before any admin account has
+ * been created yet for a freshly-added practice. New integrations
+ * should use the admin-session routes.
+ *
+ * The OAuth *callback* below is still the ONE shared endpoint for BOTH
+ * flows — Google always redirects here, and it recovers the practiceId
+ * safely from the signed, single-use `state` nonce (see
+ * services/calendar/oauthStateStore.js), never from anything the client
+ * sends at callback time. Nothing about the callback changed.
  */
 
 const express = require('express');

@@ -29,4 +29,38 @@ async function getSummary(practiceId) {
   }
 }
 
-module.exports = { logEvent, getSummary };
+/** Counts of specific event names for a practice, e.g. { appointment_cancelled: 3, appointment_rescheduled: 1 }. Missing names are simply absent (never fabricated as 0 vs "unknown" — callers treat absent as 0). Never throws — degrades to an empty object like getSummary(). */
+async function getEventCounts(practiceId, names) {
+  try {
+    const rows = await AnalyticsEvent.aggregate([
+      { $match: { practiceId, name: { $in: names } } },
+      { $group: { _id: '$name', count: { $sum: 1 } } },
+    ]);
+    return rows.reduce((acc, r) => ({ ...acc, [r._id]: r.count }), {});
+  } catch (err) {
+    console.error('Analytics event counts failed (non-fatal):', err.message);
+    return {};
+  }
+}
+
+/** Most recent appointment-lifecycle event (booked/rescheduled/cancelled) per conversationId, for the admin Conversations list — real logged data, never inferred. */
+async function getLatestAppointmentEventsByConversation(practiceId, conversationIds) {
+  if (!conversationIds || conversationIds.length === 0) return {};
+  try {
+    const rows = await AnalyticsEvent.find({
+      practiceId,
+      conversationId: { $in: conversationIds },
+      name: { $in: ['appointment_booked', 'appointment_rescheduled', 'appointment_cancelled'] },
+    }).sort({ createdAt: 1 }); // ascending so the LAST write per conversationId below is the most recent
+    const byConversation = {};
+    for (const row of rows) {
+      byConversation[row.conversationId] = row.name;
+    }
+    return byConversation;
+  } catch (err) {
+    console.error('Analytics per-conversation lookup failed (non-fatal):', err.message);
+    return {};
+  }
+}
+
+module.exports = { logEvent, getSummary, getEventCounts, getLatestAppointmentEventsByConversation };

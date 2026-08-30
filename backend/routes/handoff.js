@@ -1,5 +1,6 @@
 const express = require('express');
 const tools = require('../tools/receptionistTools');
+const conversationRepository = require('../repositories/ConversationRepository');
 const { enforceMaxLengths } = require('../middleware/validate');
 
 const router = express.Router();
@@ -16,7 +17,14 @@ router.post('/handoff', enforceMaxLengths(['name', 'phone', 'message']), async (
       }
     }
 
-    const handoff = await tools.request_human_handoff(req.practice, { conversationId, reason, type, name, phone, message });
+    // Real, not invented: whatever urgency this conversation already has on
+    // record from the deterministic classifier/AI (see routes/chat.js) —
+    // surfaced to the admin dashboard's handoff queue (Phase 3 §9).
+    const urgency = conversationId
+      ? conversationRepository.getConversation(req.practice.practiceId, conversationId).slots.urgency
+      : undefined;
+
+    const handoff = await tools.request_human_handoff(req.practice, { conversationId, reason, type, name, phone, message, urgency });
 
     res.json({
       success: true,

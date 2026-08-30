@@ -12,16 +12,22 @@
  * services/api.js) but never has to think about it beyond that.
  */
 
-const { getPractice, getDefaultPracticeId } = require('../config/practiceRepository');
+const { getPractice, getPracticeResolved, getDefaultPracticeId } = require('../config/practiceRepository');
 
-function practiceContext(req, res, next) {
+// Phase 3: resolves through getPracticeResolved so a practice's own
+// dashboard-saved settings (name/hours/services/policies/etc — see
+// config/practiceRepository.js and services/practice/practiceMerge.js)
+// take effect on the public receptionist too, not just in the admin
+// dashboard. getPracticeResolved already falls back to the static base
+// config on any database error, so this stays as resilient as the old
+// synchronous lookup was.
+async function practiceContext(req, res, next) {
   const requestedId = req.headers['x-practice-id'] || req.query.practiceId || getDefaultPracticeId();
-  const practice = getPractice(requestedId);
-
-  if (!practice) {
+  if (!getPractice(requestedId)) {
     return res.status(404).json({ error: `Unknown practiceId "${requestedId}"` });
   }
 
+  const practice = await getPracticeResolved(requestedId);
   req.practiceId = practice.practiceId;
   req.practice = practice;
   next();
