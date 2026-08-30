@@ -1,5 +1,5 @@
 const express = require('express');
-const analyticsService = require('../services/analyticsService');
+const analyticsRepository = require('../repositories/AnalyticsRepository');
 
 const router = express.Router();
 
@@ -21,14 +21,23 @@ router.post('/analytics/event', async (req, res) => {
     // Don't fail the frontend over an unknown event name — just ignore it.
     return res.json({ success: false, ignored: true });
   }
-  await analyticsService.logEvent(name, conversationId, payload || {});
-  res.json({ success: true });
+  try {
+    await analyticsRepository.logEvent(req.practiceId, name, conversationId, payload || {});
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Analytics log failed (non-fatal):', err.message);
+    res.json({ success: false });
+  }
 });
 
 // GET /api/analytics/summary -> counts per event name (stub for a future admin dashboard).
 router.get('/analytics/summary', async (req, res) => {
-  const summary = await analyticsService.getSummary();
-  res.json({ summary });
+  try {
+    const summary = await analyticsRepository.getSummary(req.practiceId);
+    res.json({ summary, demoMode: req.practice.demoMode });
+  } catch (err) {
+    res.json({ summary: [], demoMode: req.practice.demoMode });
+  }
 });
 
 module.exports = router;

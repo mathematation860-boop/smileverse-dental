@@ -5,11 +5,13 @@
  * auth scheme changes later.
  */
 
+import { PRACTICE_ID } from '../config/practiceId';
+
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
 async function request(path, options = {}) {
   const res = await fetch(`${API_BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-Practice-Id': PRACTICE_ID },
     ...options,
   });
   if (!res.ok) {

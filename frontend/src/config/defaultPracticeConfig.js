@@ -5,6 +5,7 @@
  * backend is the real source of truth.
  */
 const defaultPracticeConfig = {
+  demoMode: true,
   name: 'SmileVerse Dental',
   tagline: 'Caring for your smile, one visit at a time',
   hours: { display: '9 AM - 5 PM (Monday-Friday)' },

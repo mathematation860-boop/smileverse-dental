@@ -8,6 +8,7 @@ const mongoose = require('mongoose');
  * changing how events are fired from the UI (see frontend analytics.js).
  */
 const analyticsEventSchema = new mongoose.Schema({
+  practiceId: { type: String, required: true, index: true },
   name: {
     type: String,
     required: true,

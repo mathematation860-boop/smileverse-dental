@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 
 const leadSchema = new mongoose.Schema({
+  practiceId: { type: String, required: true, index: true },
   name: String,
   email: String,
   phone: String,

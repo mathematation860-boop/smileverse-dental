@@ -1,22 +1,26 @@
 /**
- * Mock scheduling / availability layer.
+ * Mock scheduling / availability layer — practice-aware and
+ * timezone-aware.
  *
  * There is no real practice-management system (PMS) or calendar behind
- * this yet, so this module generates realistic-looking availability
- * on the fly: it respects business hours from practiceConfig, blocks out
- * past times, and removes a deterministic (not random-every-refresh) set
- * of "already booked" slots so the calendar doesn't look emptily perfect.
- * It also subtracts any slots that are ACTUALLY booked in MongoDB via the
- * Appointment model, so once a demo appointment is booked through this
- * app, that slot really does disappear.
+ * this yet, so this module generates realistic-looking availability on
+ * the fly: it respects the given practice's business hours, blocks out
+ * past times (evaluated in the PRACTICE's timezone, not the server's —
+ * see backend/utils/timezone.js), and removes a deterministic (not
+ * random-every-refresh) set of "already booked" slots so the calendar
+ * doesn't look emptily perfect. It also subtracts any slots that are
+ * ACTUALLY booked (passed in via `bookedTimes`), so once a demo
+ * appointment is booked through this app, that slot really disappears.
  *
- * Swapping this for a real PMS/calendar API (e.g. Dentrix, Curve, Google
- * Calendar) later should only require rewriting the functions in this
- * file — nothing else in the app should need to change, since routes and
- * the frontend only ever call getAvailableSlots()/isSlotBooked() here.
+ * This is exactly the logic DemoAppointmentProvider (see
+ * services/providers/DemoAppointmentProvider.js) exposes through the
+ * AppointmentProvider interface. Swapping a practice onto a real
+ * PMS/calendar API later means writing a new provider that implements
+ * that same interface — this file would simply stop being called for
+ * that practice.
  */
 
-const practiceConfig = require('../config/practiceConfig');
+const { todayInTimezone, getMinutesSinceMidnightInTimezone } = require('../utils/timezone');
 
 /** Simple deterministic string hash -> 32-bit int, used to seed "mock booked" slots per day. */
 function hashString(str) {
@@ -42,16 +46,24 @@ function minutesToLabel(mins) {
   return `${h}:${String(m).padStart(2, '0')} ${ampm}`;
 }
 
+/** Weekday (0=Sun..6=Sat) of a 'YYYY-MM-DD' string. Weekday is a property of
+ * the calendar date itself, so this deliberately does NOT go through any
+ * timezone conversion (that would risk shifting the date at extreme UTC
+ * offsets) — only Date.UTC on the literal Y/M/D components. */
+function weekdayOfDateString(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+}
+
 /** Is this date (YYYY-MM-DD) a day the practice is open? */
-function isOpenDay(dateStr) {
-  const d = new Date(`${dateStr}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return false;
-  return practiceConfig.hours.openDays.includes(d.getDay());
+function isOpenDay(practice, dateStr) {
+  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return false;
+  return practice.hours.openDays.includes(weekdayOfDateString(dateStr));
 }
 
 /** Generate the full list of slot start times (in minutes-from-midnight) for one open day. */
-function allDaySlotMinutes() {
-  const { openTime, closeTime, slotMinutes } = practiceConfig.hours;
+function allDaySlotMinutes(practice) {
+  const { openTime, closeTime, slotMinutes } = practice.hours;
   const start = toMinutes(openTime);
   const end = toMinutes(closeTime);
   const slots = [];
@@ -65,30 +77,25 @@ function allDaySlotMinutes() {
  * Returns available slots for a given date (YYYY-MM-DD) as
  * [{ time: '10:00 AM', minutes: 600 }, ...], already excluding:
  *  - non-business days
- *  - past times (if the date is today)
+ *  - past times (if the date is "today" IN THE PRACTICE'S TIMEZONE)
  *  - a deterministic mock "already booked" subset (so it looks realistic)
  *  - real appointments booked through this app, if bookedTimes is passed in
- *
- * `bookedTimes` is an optional array of 'h:mm AM/PM' strings already
- * confirmed for that date (fetched from MongoDB by the caller) — kept as
- * a plain parameter here so this module has no direct DB dependency.
  */
-function getAvailableSlots(dateStr, { bookedTimes = [], serviceDurationMinutes } = {}) {
-  if (!dateStr || !isOpenDay(dateStr)) return [];
+function getAvailableSlots(practice, dateStr, { bookedTimes = [] } = {}) {
+  if (!dateStr || !isOpenDay(practice, dateStr)) return [];
 
-  const now = new Date();
-  const isToday = dateStr === now.toISOString().slice(0, 10);
-  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const timezone = practice.timezone;
+  const isToday = dateStr === todayInTimezone(timezone);
+  const nowMinutes = getMinutesSinceMidnightInTimezone(new Date(), timezone);
 
-  const seed = hashString(dateStr);
-  const allSlots = allDaySlotMinutes();
-
+  const seed = hashString(`${practice.practiceId}:${dateStr}`);
+  const allSlots = allDaySlotMinutes(practice);
   const bookedLabels = new Set(bookedTimes);
 
   const available = allSlots.filter((mins, idx) => {
     const label = minutesToLabel(mins);
 
-    // Exclude past slots for today (with a small buffer).
+    // Exclude past slots for today (with a small buffer), in the PRACTICE's timezone.
     if (isToday && mins <= nowMinutes + 30) return false;
 
     // Exclude anything already really booked.
@@ -106,15 +113,17 @@ function getAvailableSlots(dateStr, { bookedTimes = [], serviceDurationMinutes }
   return available.map((mins) => ({ time: minutesToLabel(mins), minutes: mins }));
 }
 
-/** Next N open dates starting today (inclusive), as YYYY-MM-DD strings. */
-function nextOpenDates(count = 14) {
+/** Next N open dates starting today IN THE PRACTICE'S TIMEZONE (inclusive), as YYYY-MM-DD strings. */
+function nextOpenDates(practice, count = 14) {
   const dates = [];
-  const cursor = new Date();
+  const todayStr = todayInTimezone(practice.timezone);
+  const [y, m, d] = todayStr.split('-').map(Number);
+  const cursor = new Date(Date.UTC(y, m - 1, d));
   let guard = 0;
   while (dates.length < count && guard < count * 4) {
     const dateStr = cursor.toISOString().slice(0, 10);
-    if (isOpenDay(dateStr)) dates.push(dateStr);
-    cursor.setDate(cursor.getDate() + 1);
+    if (isOpenDay(practice, dateStr)) dates.push(dateStr);
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
     guard += 1;
   }
   return dates;
@@ -125,4 +134,5 @@ module.exports = {
   getAvailableSlots,
   nextOpenDates,
   minutesToLabel,
+  weekdayOfDateString,
 };

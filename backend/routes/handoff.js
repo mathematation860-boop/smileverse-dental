@@ -1,13 +1,12 @@
 const express = require('express');
-const HandoffRequest = require('../models/HandoffRequest');
-const analyticsService = require('../services/analyticsService');
-const practiceConfig = require('../config/practiceConfig');
+const tools = require('../tools/receptionistTools');
+const { enforceMaxLengths } = require('../middleware/validate');
 
 const router = express.Router();
 
 // POST /api/handoff -> patient asked for (or was routed to) a human.
 // type: 'call_office' | 'request_callback' | 'send_message'
-router.post('/handoff', async (req, res) => {
+router.post('/handoff', enforceMaxLengths(['name', 'phone', 'message']), async (req, res) => {
   try {
     const { conversationId, reason, type, name, phone, message } = req.body;
 
@@ -17,24 +16,15 @@ router.post('/handoff', async (req, res) => {
       }
     }
 
-    const handoff = await HandoffRequest.create({
-      conversationId,
-      reason: reason || 'uncertain',
-      type: type || 'request_callback',
-      name,
-      phone,
-      message,
-    });
-
-    await analyticsService.logEvent('human_handoff_requested', conversationId, { reason, type });
+    const handoff = await tools.request_human_handoff(req.practice, { conversationId, reason, type, name, phone, message });
 
     res.json({
       success: true,
       data: handoff,
-      officePhone: practiceConfig.phone,
+      officePhone: req.practice.phone,
       message:
         type === 'call_office'
-          ? `You can reach our front desk directly at ${practiceConfig.phone}.`
+          ? `You can reach our front desk directly at ${req.practice.phone}.`
           : "Thanks — our front desk team will follow up with you. This is a demo app, so no real staff member is being paged yet.",
     });
   } catch (error) {

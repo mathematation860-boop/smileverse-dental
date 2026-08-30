@@ -1,19 +1,19 @@
 const express = require('express');
-const Appointment = require('../models/Appointment');
-const analyticsService = require('../services/analyticsService');
-const practiceConfig = require('../config/practiceConfig');
+const tools = require('../tools/receptionistTools');
+const { requireFields, enforceMaxLengths } = require('../middleware/validate');
+const { getAppointmentProvider } = require('../services/providers');
 
 const router = express.Router();
 
 // Book a new appointment.
-router.post('/appointments', async (req, res) => {
+router.post('/appointments', enforceMaxLengths(['name', 'phone', 'email']), async (req, res) => {
   try {
-    const { name, phone, email, service, serviceId, patientType, reason, date, time, isEmergency, conversationId } = req.body;
-    if (!name || !phone || !service || !date) {
-      return res.status(400).json({ error: 'Required fields missing (name, phone, service, date)' });
-    }
+    const missing = requireFields(req.body, ['name', 'phone', 'service', 'date']);
+    if (missing) return res.status(400).json({ error: missing });
 
-    const newAppointment = new Appointment({
+    const { name, phone, email, service, serviceId, patientType, reason, date, time, isEmergency, conversationId } = req.body;
+
+    const appointment = await tools.create_appointment(req.practice, {
       name,
       phone,
       email,
@@ -24,21 +24,14 @@ router.post('/appointments', async (req, res) => {
       date,
       time,
       isEmergency: !!isEmergency,
-    });
-    await newAppointment.save();
-
-    await analyticsService.logEvent('appointment_booked', conversationId, {
-      serviceId,
-      date,
-      time,
-      isEmergency: !!isEmergency,
+      conversationId,
     });
 
     res.json({
       success: true,
       message: 'Appointment booked successfully',
-      data: newAppointment,
-      clinic: { name: practiceConfig.name, phone: practiceConfig.phone, address: practiceConfig.address },
+      data: appointment,
+      clinic: { name: req.practice.name, phone: req.practice.phone, address: req.practice.address },
     });
   } catch (error) {
     console.error('Book Appointment Error:', error);
@@ -48,7 +41,8 @@ router.post('/appointments', async (req, res) => {
 
 router.get('/appointments', async (req, res) => {
   try {
-    const appointments = await Appointment.find().sort({ confirmedAt: -1 });
+    const provider = getAppointmentProvider(req.practice);
+    const appointments = await provider.getAllAppointments(req.practice);
     res.json(appointments);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch appointments' });
@@ -60,7 +54,7 @@ router.get('/appointments/search', async (req, res) => {
   try {
     const { phone } = req.query;
     if (!phone) return res.status(400).json({ error: 'phone is required' });
-    const appointments = await Appointment.find({ phone, status: { $ne: 'Cancelled' } }).sort({ confirmedAt: -1 });
+    const appointments = await tools.search_appointments(req.practice, phone);
     res.json(appointments);
   } catch (error) {
     res.status(500).json({ error: 'Failed to search appointments' });
@@ -74,16 +68,8 @@ router.patch('/appointments/:id', async (req, res) => {
     if (!date && !time) {
       return res.status(400).json({ error: 'date and/or time is required' });
     }
-    const appointment = await Appointment.findById(req.params.id);
+    const appointment = await tools.reschedule_appointment(req.practice, req.params.id, { date, time, conversationId });
     if (!appointment) return res.status(404).json({ error: 'Appointment not found' });
-
-    if (date) appointment.date = date;
-    if (time) appointment.time = time;
-    appointment.status = 'Rescheduled';
-    appointment.updatedAt = new Date();
-    await appointment.save();
-
-    await analyticsService.logEvent('appointment_rescheduled', conversationId, { id: appointment._id, date, time });
 
     res.json({ success: true, message: 'Appointment rescheduled successfully', data: appointment });
   } catch (error) {
@@ -96,14 +82,8 @@ router.patch('/appointments/:id', async (req, res) => {
 router.delete('/appointments/:id', async (req, res) => {
   try {
     const { conversationId } = req.body || {};
-    const appointment = await Appointment.findById(req.params.id);
+    const appointment = await tools.cancel_appointment(req.practice, req.params.id, { conversationId });
     if (!appointment) return res.status(404).json({ error: 'Appointment not found' });
-
-    appointment.status = 'Cancelled';
-    appointment.updatedAt = new Date();
-    await appointment.save();
-
-    await analyticsService.logEvent('appointment_cancelled', conversationId, { id: appointment._id });
 
     res.json({ success: true, message: 'Appointment cancelled successfully', data: appointment });
   } catch (error) {

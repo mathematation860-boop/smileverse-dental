@@ -1,10 +1,10 @@
 const express = require('express');
-const insuranceService = require('../services/insuranceService');
+const tools = require('../tools/receptionistTools');
 
 const router = express.Router();
 
 router.get('/insurance', (req, res) => {
-  res.json(insuranceService.listAccepted());
+  res.json(tools.get_insurance_information(req.practice));
 });
 
 router.post('/insurance/check', (req, res) => {
@@ -12,7 +12,7 @@ router.post('/insurance/check', (req, res) => {
   if (!provider) {
     return res.status(400).json({ error: 'provider is required' });
   }
-  res.json(insuranceService.checkProvider(provider));
+  res.json(tools.get_insurance_information(req.practice, provider));
 });
 
 module.exports = router;

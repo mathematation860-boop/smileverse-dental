@@ -1,20 +1,20 @@
 /**
  * Deterministic insurance lookup — never AI-generated, so coverage is
- * never invented. Matches against practiceConfig's configured provider
- * list (see backend/config/insurance.js) with light fuzzy matching.
+ * never invented. Matches against the given practice's configured
+ * provider list (practice.insurance, see config/practices/*.js) with
+ * light fuzzy matching.
  */
-
-const insuranceConfig = require('../config/insurance');
 
 function normalize(str) {
   return (str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
 /**
+ * @param {object} practice - resolved practice (req.practice)
  * @param {string} providerName - free text the patient typed
  * @returns {{ status: 'accepted'|'unknown', provider: string|null, message: string }}
  */
-function checkProvider(providerName) {
+function checkProvider(practice, providerName) {
   const normalizedInput = normalize(providerName);
   if (!normalizedInput) {
     return {
@@ -24,7 +24,7 @@ function checkProvider(providerName) {
     };
   }
 
-  const match = insuranceConfig.acceptedProviders.find((p) => {
+  const match = practice.insurance.acceptedProviders.find((p) => {
     const normalizedProvider = normalize(p);
     return normalizedProvider.includes(normalizedInput) || normalizedInput.includes(normalizedProvider);
   });
@@ -33,7 +33,7 @@ function checkProvider(providerName) {
     return {
       status: 'accepted',
       provider: match,
-      message: `Yes, we accept ${match}. ${insuranceConfig.notes}`,
+      message: `Yes, we accept ${match}. ${practice.insurance.notes}`,
     };
   }
 
@@ -44,11 +44,11 @@ function checkProvider(providerName) {
   };
 }
 
-function listAccepted() {
+function listAccepted(practice) {
   return {
-    acceptedProviders: insuranceConfig.acceptedProviders,
-    notes: insuranceConfig.notes,
-    notesUr: insuranceConfig.notesUr,
+    acceptedProviders: practice.insurance.acceptedProviders,
+    notes: practice.insurance.notes,
+    notesUr: practice.insurance.notesUr,
   };
 }
 

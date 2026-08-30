@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 
 const appointmentSchema = new mongoose.Schema({
+  practiceId: { type: String, required: true, index: true },
   name: String,
   phone: String,
   email: String,
@@ -15,5 +16,9 @@ const appointmentSchema = new mongoose.Schema({
   confirmedAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
 });
+
+// Every availability lookup filters by practiceId + date — index the pair.
+appointmentSchema.index({ practiceId: 1, date: 1 });
+appointmentSchema.index({ practiceId: 1, phone: 1 });
 
 module.exports = mongoose.models.Appointment || mongoose.model('Appointment', appointmentSchema);

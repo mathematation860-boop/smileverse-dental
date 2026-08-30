@@ -1,14 +1,18 @@
 /**
- * In-memory conversation + slot-memory store, keyed by conversationId.
+ * In-memory conversation + slot-memory store, keyed by practiceId +
+ * conversationId.
  *
  * This is what lets the receptionist avoid re-asking things the patient
  * already said in this session ("How much is a cleaning?" -> "Can I book
  * it tomorrow?" should carry `service = Cleaning` forward automatically).
  *
- * This is intentionally simple (a Map, cleared on server restart) — for
- * production this would move to Redis or Mongo, but the interface below
- * (getConversation/updateSlots/appendMessage) would stay the same, so
- * routes and services never touch the Map directly.
+ * This is intentionally simple (a Map, cleared on server restart, scoped
+ * per practice so one clinic's conversation state can never leak into
+ * another's) — for production this would move to Redis or a database
+ * table, but the interface below (getConversation/updateSlots/
+ * appendMessage) would stay the same. See
+ * repositories/ConversationRepository.js for the public-facing wrapper
+ * routes/services actually import.
  */
 
 const conversations = new Map();
@@ -23,19 +27,26 @@ const EMPTY_SLOTS = () => ({
   language: 'en', // 'en' | 'ur'
 });
 
-function getConversation(conversationId) {
-  if (!conversations.has(conversationId)) {
-    conversations.set(conversationId, {
+function key(practiceId, conversationId) {
+  return `${practiceId}::${conversationId}`;
+}
+
+function getConversation(practiceId, conversationId) {
+  const k = key(practiceId, conversationId);
+  if (!conversations.has(k)) {
+    conversations.set(k, {
+      practiceId,
+      conversationId,
       history: [], // [{ role: 'user'|'assistant', content }]
       slots: EMPTY_SLOTS(),
       createdAt: new Date().toISOString(),
     });
   }
-  return conversations.get(conversationId);
+  return conversations.get(k);
 }
 
-function appendMessage(conversationId, role, content) {
-  const conv = getConversation(conversationId);
+function appendMessage(practiceId, conversationId, role, content) {
+  const conv = getConversation(practiceId, conversationId);
   conv.history.push({ role, content });
   // Cap history so memory doesn't grow unbounded in a long-running server.
   if (conv.history.length > 40) {
@@ -45,21 +56,13 @@ function appendMessage(conversationId, role, content) {
 }
 
 /** Merge new slot values in, but never overwrite a known value with null/undefined. */
-function updateSlots(conversationId, partialSlots = {}) {
-  const conv = getConversation(conversationId);
-  Object.entries(partialSlots).forEach(([key, value]) => {
+function updateSlots(practiceId, conversationId, partialSlots = {}) {
+  const conv = getConversation(practiceId, conversationId);
+  Object.entries(partialSlots).forEach(([k2, value]) => {
     if (value !== null && value !== undefined && value !== '') {
-      conv.slots[key] = value;
+      conv.slots[k2] = value;
     }
   });
-  return conv.slots;
-}
-
-function resetBookingSlots(conversationId) {
-  const conv = getConversation(conversationId);
-  conv.slots.serviceId = null;
-  conv.slots.datePreference = null;
-  conv.slots.patientType = null;
   return conv.slots;
 }
 
@@ -67,5 +70,4 @@ module.exports = {
   getConversation,
   appendMessage,
   updateSlots,
-  resetBookingSlots,
 };

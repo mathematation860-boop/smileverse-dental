@@ -1,16 +1,16 @@
 const express = require('express');
-const Lead = require('../models/Lead');
+const leadRepository = require('../repositories/LeadRepository');
+const { requireFields, enforceMaxLengths } = require('../middleware/validate');
 
 const router = express.Router();
 
-router.post('/leads', async (req, res) => {
+router.post('/leads', enforceMaxLengths(['name', 'phone', 'email', 'message']), async (req, res) => {
   try {
+    const missing = requireFields(req.body, ['name', 'phone']);
+    if (missing) return res.status(400).json({ error: missing });
+
     const { name, email, phone, message } = req.body;
-    if (!name || !phone) {
-      return res.status(400).json({ error: 'Name and phone are required' });
-    }
-    const newLead = new Lead({ name, email, phone, message });
-    await newLead.save();
+    const newLead = await leadRepository.create(req.practiceId, { name, email, phone, message });
     res.json({ success: true, message: 'Lead saved successfully', data: newLead });
   } catch (error) {
     console.error('Save Lead Error:', error);
@@ -20,7 +20,7 @@ router.post('/leads', async (req, res) => {
 
 router.get('/leads', async (req, res) => {
   try {
-    const leads = await Lead.find().sort({ savedAt: -1 });
+    const leads = await leadRepository.findAll(req.practiceId);
     res.json(leads);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch leads' });

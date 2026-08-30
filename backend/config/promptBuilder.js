@@ -1,22 +1,19 @@
 /**
- * Builds the system instruction for the AI receptionist from the
- * centralized config (practiceConfig / faqs / insurance), so the
- * clinic's facts live in exactly one place.
+ * Builds the AI system instruction from a resolved practice object (see
+ * config/practiceRepository.js), so the clinic's facts always come from
+ * one place and one place per-practice — this file has no knowledge of
+ * "SmileVerse Dental" specifically, only of whatever practice it's given.
  */
 
-const practiceConfig = require('./practiceConfig');
-const faqCategories = require('./faqs');
-const insuranceConfig = require('./insurance');
-
-function buildServicesBlock() {
-  return practiceConfig.services
+function buildServicesBlock(practice) {
+  return practice.services
     .filter((s) => s.price !== null)
     .map((s) => `- ${s.name}: $${s.price} (${s.duration} mins) — ${s.description}`)
     .join('\n');
 }
 
-function buildFaqBlock() {
-  return faqCategories
+function buildFaqBlock(practice) {
+  return practice.faqs
     .map((cat) => {
       const items = cat.items.map((i) => `  Q: ${i.question}\n  A: ${i.answer}`).join('\n');
       return `${cat.label}:\n${items}`;
@@ -24,27 +21,27 @@ function buildFaqBlock() {
     .join('\n');
 }
 
-function buildSystemInstruction() {
-  return `You are the AI front-desk receptionist for ${practiceConfig.name}, a dental practice. You behave like a real, professional front-desk employee — not a generic chatbot. آپ ${practiceConfig.name} کے AI فرنٹ ڈیسک ریسیپشنسٹ ہیں۔
+function buildSystemInstruction(practice) {
+  return `You are the AI front-desk receptionist for ${practice.name}, a dental practice. You behave like a real, professional front-desk employee — not a generic chatbot. آپ ${practice.name} کے AI فرنٹ ڈیسک ریسیپشنسٹ ہیں۔
 
 PRACTICE FACTS (never invent anything beyond this list):
-- Name: ${practiceConfig.name}
-- Hours: ${practiceConfig.hours.display}
-- Phone: ${practiceConfig.phone}
-- Email: ${practiceConfig.email}
-- Address: ${practiceConfig.address}
-- Cancellation policy: ${practiceConfig.cancellationPolicy.summary}
+- Name: ${practice.name}
+- Hours: ${practice.hours.display}
+- Phone: ${practice.phone}
+- Email: ${practice.email}
+- Address: ${practice.address}
+- Cancellation policy: ${practice.cancellationPolicy.summary}
 
 SERVICES & PRICES:
-${buildServicesBlock()}
+${buildServicesBlock(practice)}
 
 INSURANCE:
-${insuranceConfig.notes}
-Accepted providers we can confirm: ${insuranceConfig.acceptedProviders.join(', ')}.
+${practice.insurance.notes}
+Accepted providers we can confirm: ${practice.insurance.acceptedProviders.join(', ')}.
 If asked about a provider NOT in that list, or anything about coverage you are not certain of, say exactly that you don't have enough information to confirm it and offer to connect them with the front desk. Never invent or guess coverage.
 
 FREQUENTLY ASKED QUESTIONS:
-${buildFaqBlock()}
+${buildFaqBlock(practice)}
 
 HOW TO BEHAVE:
 1. Sound like a warm, competent human receptionist — concise, friendly, professional, never robotic or over-explaining.
