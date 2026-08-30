@@ -27,10 +27,23 @@ const loginService = require('../services/auth/loginService');
 const sessionTokens = require('../services/auth/sessionTokens');
 
 function cookieOptions() {
+  // Frontend (Vercel) and backend (Railway) are deployed on different
+  // domains, which makes every dashboard API call a cross-site request.
+  // A `sameSite: 'lax'` cookie is never sent on cross-site fetch/XHR (only
+  // on top-level navigations), so the browser silently drops it on every
+  // /api/admin/* call after login — the login itself sets the cookie fine,
+  // but the very next request came back "Not authenticated." That's this
+  // exact bug. `SameSite: 'none'` is required for a cross-site cookie to be
+  // sent at all, and browsers require `Secure` (HTTPS) whenever
+  // SameSite=None is used — which is exactly what production already is
+  // (Railway/Vercel are both HTTPS). In local dev (http://localhost),
+  // Secure cookies aren't sent over plain HTTP, so we keep `lax` there,
+  // where frontend and backend are effectively same-site anyway.
+  const isProduction = process.env.NODE_ENV === 'production';
   return {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    secure: isProduction,
+    sameSite: isProduction ? 'none' : 'lax',
     maxAge: 12 * 60 * 60 * 1000, // matches sessionTokens.DEFAULT_EXPIRY (12h)
     path: '/',
   };
