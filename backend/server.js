@@ -75,7 +75,18 @@ app.get('/api/health', (req, res) => {
 // verifies the telephony provider's webhook signature itself. It must
 // never go through the X-Practice-Id-header-based practiceContext
 // middleware, which a phone call has no way to send.
-app.use('/api', require('./routes/voice'));
+//
+// IMPORTANT: mounted at '/api/voice' (not the bare '/api' every other
+// router below uses) — this router's voicePracticeContext middleware is
+// registered with router.use(), which Express runs for EVERY request
+// that reaches this router, regardless of which specific route inside it
+// matches. Mounting it at the shared '/api' prefix (as originally
+// written) meant that middleware ran on every single /api/* request —
+// including /api/admin/login — and rejected all of them with the "number
+// not in service" response before they ever reached their real route.
+// Scoping the mount to '/api/voice' means only actual voice webhook
+// requests ever reach this router at all.
+app.use('/api/voice', require('./routes/voice'));
 
 // Every route after this point knows WHICH practice it's serving —
 // see middleware/practiceContext.js. This is the multi-tenancy boundary:

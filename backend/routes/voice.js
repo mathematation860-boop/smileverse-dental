@@ -45,7 +45,7 @@ function buildVoiceRouter(deps = {}) {
   }
 
   // POST /api/voice/incoming — the telephony provider's "a call arrived" webhook.
-  router.post('/voice/incoming', async (req, res) => {
+  router.post('/incoming', async (req, res) => {
     const practice = req.practice;
     const provider = req.voiceProvider;
     const callSid = req.body.CallSid || `mock-${Date.now()}`;
@@ -71,7 +71,7 @@ function buildVoiceRouter(deps = {}) {
   });
 
   // POST /api/voice/gather — the telephony provider's "here's what the caller said" webhook.
-  router.post('/voice/gather', async (req, res) => {
+  router.post('/gather', async (req, res) => {
     const practice = req.practice;
     const provider = req.voiceProvider;
     const callSid = req.body.CallSid || 'unknown-call';
@@ -151,7 +151,7 @@ function buildVoiceRouter(deps = {}) {
   });
 
   // POST /api/voice/status — the telephony provider's call-status callback (call ended/failed/no-answer/busy).
-  router.post('/voice/status', async (req, res) => {
+  router.post('/status', async (req, res) => {
     const callSid = req.body.CallSid;
     const statusMap = { completed: 'completed', failed: 'failed', busy: 'busy', 'no-answer': 'no_answer', canceled: 'failed' };
     const status = statusMap[req.body.CallStatus] || undefined;

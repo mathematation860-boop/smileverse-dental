@@ -54,7 +54,7 @@ test('INCOMING CALL: greets with the PRACTICE\'s own name (never hard-coded) and
   const callLogRepository = fakeCallLogRepository();
   const router = buildVoiceRouter({ voicePracticeContext: fakeVoicePracticeContext, callLogRepository });
 
-  const { res } = await invokeRoute(router, 'POST', '/voice/incoming', fakeReq({ CallSid: 'CA1', From: '+15551112222', To: '+15559998888' }));
+  const { res } = await invokeRoute(router, 'POST', '/incoming', fakeReq({ CallSid: 'CA1', From: '+15551112222', To: '+15559998888' }));
 
   assert.match(res.body, /Thank you for calling SmileVerse Dental/);
   assert.match(res.body, /<Gather/);
@@ -74,7 +74,7 @@ test('NORMAL TURN: transcribes speech, calls the orchestrator, and continues wit
     callLogRepository,
   });
 
-  const { res } = await invokeRoute(router, 'POST', '/voice/gather', fakeReq({ CallSid: 'CA2', From: '+15551112222', SpeechResult: 'how much is a cleaning' }));
+  const { res } = await invokeRoute(router, 'POST', '/gather', fakeReq({ CallSid: 'CA2', From: '+15551112222', SpeechResult: 'how much is a cleaning' }));
 
   assert.equal(engineCalledWith.utteranceText, 'how much is a cleaning');
   assert.equal(engineCalledWith.conversationId, 'CA2', 'the CallSid must be used as the conversation/session id');
@@ -95,7 +95,7 @@ test('HUMAN HANDOFF RESULT: builds a transfer TwiML response and marks the call 
     callLogRepository,
   });
 
-  const { res } = await invokeRoute(router, 'POST', '/voice/gather', fakeReq({ CallSid: 'CA3', From: '+1555', SpeechResult: 'let me talk to a person' }));
+  const { res } = await invokeRoute(router, 'POST', '/gather', fakeReq({ CallSid: 'CA3', From: '+1555', SpeechResult: 'let me talk to a person' }));
 
   assert.match(res.body, /<Dial to="\+15559998888">/);
   assert.equal(callLogRepository.calls.get('CA3').ended, true);
@@ -114,7 +114,7 @@ test('EMERGENCY RESULT: builds a hangup TwiML response (never another Gather) af
     callLogRepository,
   });
 
-  const { res } = await invokeRoute(router, 'POST', '/voice/gather', fakeReq({ CallSid: 'CA4', From: '+1555', SpeechResult: "i can't breathe" }));
+  const { res } = await invokeRoute(router, 'POST', '/gather', fakeReq({ CallSid: 'CA4', From: '+1555', SpeechResult: "i can't breathe" }));
 
   assert.match(res.body, /<Hangup>/);
   assert.doesNotMatch(res.body, /<Gather/);
@@ -135,7 +135,7 @@ test('BOOKING CONFIRMED: the call log records appointment_booked ONLY once the f
     callLogRepository,
   });
 
-  await invokeRoute(router, 'POST', '/voice/gather', fakeReq({ CallSid: 'CA5', From: '+1555', SpeechResult: 'yes please' }));
+  await invokeRoute(router, 'POST', '/gather', fakeReq({ CallSid: 'CA5', From: '+1555', SpeechResult: 'yes please' }));
 
   assert.equal(callLogRepository.calls.get('CA5').appointmentCreated, true);
   assert.equal(callLogRepository.calls.get('CA5').outcome, 'appointment_booked');
@@ -150,7 +150,7 @@ test('NO SPEECH DETECTED: re-prompts with another Gather instead of calling the 
     callLogRepository: fakeCallLogRepository(),
   });
 
-  const { res } = await invokeRoute(router, 'POST', '/voice/gather', fakeReq({ CallSid: 'CA6', From: '+1555', SpeechResult: '' }));
+  const { res } = await invokeRoute(router, 'POST', '/gather', fakeReq({ CallSid: 'CA6', From: '+1555', SpeechResult: '' }));
 
   assert.equal(engineCalled, false);
   assert.match(res.body, /<Gather/);
@@ -164,7 +164,7 @@ test('ENGINE FAILURE: an unexpected error still produces a spoken transfer respo
     callLogRepository: fakeCallLogRepository(),
   });
 
-  const { res } = await invokeRoute(router, 'POST', '/voice/gather', fakeReq({ CallSid: 'CA7', From: '+1555', SpeechResult: 'hello' }));
+  const { res } = await invokeRoute(router, 'POST', '/gather', fakeReq({ CallSid: 'CA7', From: '+1555', SpeechResult: 'hello' }));
 
   assert.match(res.body, /<Dial/);
   assert.match(res.body, /trouble right now/);
@@ -175,7 +175,7 @@ test('STATUS CALLBACK: records the call\'s final status and duration', async () 
   await callLogRepository.startCall(PRACTICE.practiceId, { callSid: 'CA8', fromNumber: '+1555', toNumber: '+15559998888', demoMode: true });
   const router = buildVoiceRouter({ voicePracticeContext: fakeVoicePracticeContext, callLogRepository });
 
-  const { res } = await invokeRoute(router, 'POST', '/voice/status', fakeReq({ CallSid: 'CA8', CallStatus: 'completed', CallDuration: '47' }));
+  const { res } = await invokeRoute(router, 'POST', '/status', fakeReq({ CallSid: 'CA8', CallStatus: 'completed', CallDuration: '47' }));
 
   assert.equal(res.statusCode, 200);
   assert.equal(callLogRepository.calls.get('CA8').status, 'completed');
