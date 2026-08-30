@@ -8,8 +8,16 @@ const { enforceMaxLengths } = require('../middleware/validate');
 const router = express.Router();
 
 router.post('/chat', enforceMaxLengths(['chatMessage']), async (req, res) => {
+  // Declared outside the try block so the catch block below can still see
+  // the deterministic keyword classification even if the AI call itself is
+  // what throws (see the QA-audit comment in the catch block).
+  let conversationId;
+  let keywordUrgency = 'none';
+  let message;
+
   try {
-    const { conversationId, message } = req.body;
+    message = req.body.message;
+    conversationId = req.body.conversationId;
     if (!message || !conversationId) {
       return res.status(400).json({ error: 'conversationId and message are required' });
     }
@@ -19,7 +27,7 @@ router.post('/chat', enforceMaxLengths(['chatMessage']), async (req, res) => {
     const isFirstMessage = conv.history.length === 0;
 
     // 1. Deterministic safety check FIRST, before any AI call.
-    const keywordUrgency = emergencyService.classifyUrgency(message);
+    keywordUrgency = emergencyService.classifyUrgency(message);
 
     if (keywordUrgency === 'life_threatening') {
       conversationRepository.appendMessage(practice.practiceId, conversationId, 'user', message);
@@ -101,9 +109,71 @@ router.post('/chat', enforceMaxLengths(['chatMessage']), async (req, res) => {
     // Log the real error server-side, but never leak internal error details
     // (stack traces, provider error text) to the client.
     console.error('Chat API Error:', error);
-    res.status(500).json({
-      error: 'Failed to process message',
-      reply: "Sorry, I'm having trouble right now. Please call our office or request a callback.",
+
+    // QA-audit fix: an AI outage used to fall back to the same bland
+    // "please try again" message regardless of what the patient actually
+    // said. That is fine for ordinary chit-chat, but a patient with a
+    // genuinely urgent (though not life-threatening) dental issue — severe
+    // pain, a knocked-out tooth, facial swelling — deserves safety-aware
+    // guidance even when the AI provider itself is unreachable. The
+    // life-threatening tier already has its own dedicated safety net above
+    // this try block; this covers the next tier down.
+    const isUrgent = keywordUrgency === 'urgent' || keywordUrgency === 'severe';
+
+    if (!isUrgent || !conversationId) {
+      // Ordinary chit-chat failure: keep the existing generic behavior.
+      // The frontend's api.js treats any non-2xx response as a thrown
+      // error and only ever shows a fixed generic message for it, so an
+      // extra `reply` field here would never reach the user anyway.
+      return res.status(500).json({ error: 'Failed to process message' });
+    }
+
+    // Urgent (but not life-threatening) dental issue + AI outage: respond
+    // with a real 200 success-shaped payload, exactly like the
+    // life-threatening branch above, so the frontend actually renders the
+    // safety-aware reply instead of silently discarding it (api.js's
+    // request() only keeps the response body when res.ok is true).
+    const fallbackReply = emergencyService.URGENT_FALLBACK_MESSAGE_EN;
+    const fallbackReplyUr = emergencyService.URGENT_FALLBACK_MESSAGE_UR;
+
+    try {
+      if (message) {
+        conversationRepository.appendMessage(req.practice.practiceId, conversationId, 'user', message);
+      }
+      conversationRepository.appendMessage(req.practice.practiceId, conversationId, 'assistant', fallbackReply);
+      conversationRepository.updateSlots(req.practice.practiceId, conversationId, { urgency: keywordUrgency });
+    } catch (historyErr) {
+      // Even if we can't persist history, the patient must still get the
+      // safety-aware reply below.
+      console.error('Failed to persist urgent-fallback turn:', historyErr);
+    }
+
+    let entities = {};
+    try {
+      entities = conversationRepository.getConversation(req.practice.practiceId, conversationId).slots;
+    } catch (slotErr) {
+      // Fall back to an empty slots object rather than failing the response.
+    }
+
+    try {
+      await analyticsRepository.logEvent(req.practice.practiceId, 'emergency_request', conversationId, {
+        severity: keywordUrgency,
+        source: 'keyword_fallback_on_ai_error',
+      });
+    } catch (logErr) {
+      // Analytics must never compound an already-failing request.
+    }
+
+    return res.json({
+      success: true,
+      message: fallbackReply,
+      reply: fallbackReply,
+      replyUr: fallbackReplyUr,
+      conversationId,
+      intent: 'emergency',
+      urgency: keywordUrgency,
+      suggestedActions: ['talk_to_human'],
+      entities,
     });
   }
 });

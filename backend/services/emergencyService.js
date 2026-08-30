@@ -78,6 +78,22 @@ const LIFE_THREATENING_MESSAGE_UR =
   'براہ کرم فوری طور پر 911 (یا اپنے علاقے کا ایمرجنسی نمبر) پر کال کریں یا قریب ترین ایمرجنسی روم جائیں۔ ' +
   'محفوظ ہونے کے بعد، دانتوں کے کسی بھی فالو اپ علاج کے لیے ہم حاضر ہیں۔';
 
+// Fallback for an "urgent" (not life-threatening) dental issue — e.g. severe
+// pain, a knocked-out tooth, facial swelling without airway involvement —
+// used ONLY when the AI call itself fails (rate limit, outage, bad
+// credentials) so a patient with a genuinely urgent issue never gets the
+// same bland "please try again" reply a random chit-chat failure would get.
+// Found during a QA audit: before this existed, an AI outage on an urgent
+// (but not life-threatening) message silently dropped back to the generic
+// error with no safety-aware guidance at all.
+const URGENT_FALLBACK_MESSAGE_EN =
+  "This sounds like it may need prompt attention, and I'm having trouble reaching our scheduling system right now. " +
+  'Please call our office directly so our team can help you as soon as possible.';
+
+const URGENT_FALLBACK_MESSAGE_UR =
+  'ایسا لگتا ہے کہ اس پر جلد توجہ کی ضرورت ہے، اور ابھی میں شیڈولنگ سسٹم تک رسائی حاصل کرنے میں مشکل محسوس کر رہا ہوں۔ ' +
+  'براہ کرم براہ راست ہمارے دفتر کو کال کریں تاکہ ہماری ٹیم جلد از جلد آپ کی مدد کر سکے۔';
+
 const SEVERITY_RANK = { none: 0, moderate: 1, urgent: 2, severe: 2, life_threatening: 3 };
 
 /** Returns whichever of the two urgency labels is more severe. */
@@ -92,4 +108,6 @@ module.exports = {
   combineUrgency,
   LIFE_THREATENING_MESSAGE_EN,
   LIFE_THREATENING_MESSAGE_UR,
+  URGENT_FALLBACK_MESSAGE_EN,
+  URGENT_FALLBACK_MESSAGE_UR,
 };

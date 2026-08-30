@@ -62,6 +62,9 @@ function BookingFlow({ practiceConfig, prefill, onClose, onBooked, conversationI
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [bookedAppointment, setBookedAppointment] = useState(null);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelled, setCancelled] = useState(false);
+  const [cancelError, setCancelError] = useState('');
 
   const step = STEPS[stepIndex];
 
@@ -141,6 +144,29 @@ function BookingFlow({ practiceConfig, prefill, onClose, onBooked, conversationI
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
+
+  // QA-audit fix: the confirmation card's Cancel button used to just close
+  // the modal (onClose) without ever calling the backend, which silently
+  // left the appointment booked while the danger-styled "Cancel" button
+  // implied it had been cancelled. This actually cancels it via the
+  // existing, already-working cancelAppointment endpoint.
+  const handleCancelBooking = async () => {
+    const appointmentId = bookedAppointment?._id || bookedAppointment?.id;
+    if (!appointmentId) {
+      onClose && onClose();
+      return;
+    }
+    setCancelError('');
+    setCancelling(true);
+    try {
+      await api.cancelAppointment(appointmentId, { conversationId });
+      setCancelled(true);
+    } catch (err) {
+      setCancelError(err.message || 'Something went wrong cancelling your appointment.');
+    } finally {
+      setCancelling(false);
+    }
+  };
 
   return (
     <div className="sv-modal-overlay" role="dialog" aria-modal="true">
@@ -271,13 +297,26 @@ function BookingFlow({ practiceConfig, prefill, onClose, onBooked, conversationI
                   </button>
                 </div>
               )}
-              {bookedAppointment && (
+              {bookedAppointment && cancelled && (
+                <div className="sv-card sv-confirmation-card">
+                  <p className="sv-step-hint">{t.booking.cancelled}</p>
+                </div>
+              )}
+              {bookedAppointment && !cancelled && (
                 <ConfirmationCard
                   appointment={bookedAppointment}
                   clinic={practiceConfig}
                   durationMinutes={serviceMeta?.duration}
-                  onCancel={onClose}
+                  onCancel={handleCancelBooking}
                 />
+              )}
+              {bookedAppointment && !cancelled && cancelling && (
+                <p className="sv-loading-text">{t.chat.loadingConfirmation}</p>
+              )}
+              {bookedAppointment && !cancelled && cancelError && (
+                <div className="sv-error-box">
+                  <p>{cancelError}</p>
+                </div>
               )}
             </div>
           )}
