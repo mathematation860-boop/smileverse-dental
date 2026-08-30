@@ -11,6 +11,14 @@ const WELCOME_UR =
   'السلام علیکم، میں SmileVerse Dental کا AI ریسیپشنسٹ ہوں — 24/7 دستیاب۔ ' +
   'میں سوالات کے جواب دے سکتا ہوں، اپائنٹمنٹ بنا یا تبدیل کر سکتا ہوں، انشورنس چیک کر سکتا ہوں، یا آپ کو ہماری ٹیم سے ملوا سکتا ہوں۔ آج کیسے مدد کروں؟';
 
+function formatTimestamp(iso) {
+  try {
+    return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  } catch (err) {
+    return '';
+  }
+}
+
 function guessLoadingLabel(text, t) {
   const lower = text.toLowerCase();
   if (/(book|appointment|schedule)/.test(lower)) return t.chat.loadingBooking;
@@ -155,6 +163,7 @@ function ChatPanel({
                   </React.Fragment>
                 ))}
               </div>
+              {msg.timestamp && <span className="sv-bubble-timestamp">{formatTimestamp(msg.timestamp)}</span>}
               {msg.role === 'assistant' && msg.suggestedActions && msg.suggestedActions.length > 0 && (
                 <div className="sv-message-actions">
                   {msg.suggestedActions

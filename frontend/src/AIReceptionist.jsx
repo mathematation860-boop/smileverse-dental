@@ -6,8 +6,10 @@ import { useLanguage } from './i18n/LanguageContext';
 
 import TopBar from './components/TopBar';
 import Hero from './components/Hero';
+import TrustSection from './components/TrustSection';
 import ChatPanel from './components/ChatPanel';
 import Sidebar from './components/Sidebar';
+import ServicesSection from './components/ServicesSection';
 import BookingFlow from './components/BookingFlow';
 import FaqPanel from './components/FaqPanel';
 import InsurancePanel from './components/InsurancePanel';
@@ -81,11 +83,7 @@ function AIReceptionist() {
         onChatClick={scrollToChat}
       />
 
-      <nav className="sv-navstrip">
-        {(practiceConfig.services || []).filter((s) => s.price != null).map((s) => (
-          <span className="sv-navstrip-item" key={s.id || s.name}>{s.name}</span>
-        ))}
-      </nav>
+      <TrustSection />
 
       <main className="sv-main">
         <ChatPanel
@@ -106,6 +104,12 @@ function AIReceptionist() {
           onLeadSaved={refreshStats}
         />
       </main>
+
+      <ServicesSection
+        services={practiceConfig.services}
+        onBook={(prefill) => openBooking(prefill)}
+        onAskAi={scrollToChat}
+      />
 
       <footer className="sv-footer">{t.footer}</footer>
 

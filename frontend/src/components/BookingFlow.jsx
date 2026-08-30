@@ -151,9 +151,14 @@ function BookingFlow({ practiceConfig, prefill, onClose, onBooked, conversationI
         </div>
 
         {step !== 'confirm' && (
-          <div className="sv-booking-progress">
+          <div className="sv-booking-stepper">
             {STEPS.slice(0, -1).map((s, i) => (
-              <span key={s} className={`sv-progress-dot ${i <= stepIndex ? 'sv-progress-dot-active' : ''}`} />
+              <React.Fragment key={s}>
+                <span className={`sv-stepper-node ${i < stepIndex ? 'sv-stepper-done' : ''} ${i === stepIndex ? 'sv-stepper-active' : ''}`}>
+                  {i < stepIndex ? '✓' : i + 1}
+                </span>
+                {i < STEPS.length - 2 && <span className={`sv-stepper-line ${i < stepIndex ? 'sv-stepper-line-done' : ''}`} />}
+              </React.Fragment>
             ))}
           </div>
         )}
