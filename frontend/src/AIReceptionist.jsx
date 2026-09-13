@@ -16,7 +16,23 @@ import InsurancePanel from './components/InsurancePanel';
 
 function AIReceptionist() {
   const { t } = useLanguage();
-  const [conversationId] = useState(() => `conv_${Date.now()}`);
+  // The conversation is identified by a token the SERVER issues and signs.
+  // This used to be `conv_${Date.now()}` — a client-chosen timestamp, which
+  // meant anyone could enumerate ids and reach another patient's
+  // conversation (the assistant would answer from their stored details).
+  // Both values start empty: the first chat reply carries the token to
+  // reuse, and the plain id that goes on analytics and booking records.
+  const [conversationToken, setConversationToken] = useState(null);
+  // Seeded with a local random id, NOT because the client is trusted to
+  // choose one — the server overwrites it — but because the old backend
+  // rejects a chat request that carries no conversationId, and the
+  // frontend deploys first. Random rather than a timestamp so it is not
+  // enumerable even during that window.
+  const [conversationId, setConversationId] = useState(() =>
+    typeof crypto !== 'undefined' && crypto.randomUUID
+      ? `pending_${crypto.randomUUID()}`
+      : `pending_${Date.now()}_${Math.random().toString(36).slice(2)}`
+  );
   const [practiceConfig, setPracticeConfig] = useState(defaultPracticeConfig);
   const [apiStatus, setApiStatus] = useState('checking');
   const [stats, setStats] = useState({ messages: 0, leads: 0, appointments: 0 });
@@ -88,6 +104,11 @@ function AIReceptionist() {
       <main className="sv-main">
         <ChatPanel
           conversationId={conversationId}
+          conversationToken={conversationToken}
+          onConversationIssued={({ token, id }) => {
+            if (token) setConversationToken(token);
+            if (id) setConversationId(id);
+          }}
           practiceConfig={practiceConfig}
           onMessageCountChange={(count) => setStats((prev) => ({ ...prev, messages: count }))}
           onOpenBooking={openBooking}

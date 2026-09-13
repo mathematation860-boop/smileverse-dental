@@ -29,6 +29,8 @@ function guessLoadingLabel(text, t) {
 
 function ChatPanel({
   conversationId,
+  conversationToken,
+  onConversationIssued,
   practiceConfig,
   onMessageCountChange,
   onOpenBooking,
@@ -59,12 +61,14 @@ function ChatPanel({
   }, [messages]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!startedRef.current) {
+    // Waits for the server-issued id rather than firing with null: the
+    // conversation does not exist until the backend has created it.
+    if (!startedRef.current && conversationId) {
       startedRef.current = true;
       trackEvent(EVENTS.CONVERSATION_STARTED, conversationId, {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [conversationId]);
 
   // Let the Hero's "Talk to AI Receptionist" button send a starter prompt.
   useEffect(() => {
@@ -83,7 +87,14 @@ function ChatPanel({
     setLoadingLabel(guessLoadingLabel(text, t));
 
     try {
-      const data = await api.sendChatMessage({ conversationId, message: text });
+      const data = await api.sendChatMessage({ conversationToken, conversationId, message: text });
+
+      // The server decides which conversation this is. Adopt whatever it
+      // hands back — on the first message that is a newly issued token, and
+      // on later ones it is the same token echoed.
+      if (onConversationIssued && (data.conversationToken || data.conversationId)) {
+        onConversationIssued({ token: data.conversationToken, id: data.conversationId });
+      }
 
       setMessages((prev) => [
         ...prev,
@@ -211,6 +222,7 @@ function ChatPanel({
           <HandoffPanel
             practiceConfig={practiceConfig}
             conversationId={conversationId}
+            conversationToken={conversationToken}
             reason={handoffReason}
             onClose={() => setShowHandoff(false)}
           />

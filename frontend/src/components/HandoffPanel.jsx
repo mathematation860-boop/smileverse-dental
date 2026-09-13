@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import api from '../services/api';
 import { useLanguage } from '../i18n/LanguageContext';
 
-function HandoffPanel({ practiceConfig, conversationId, reason, onClose }) {
+function HandoffPanel({ practiceConfig, conversationId, conversationToken, reason, onClose }) {
   const { t } = useLanguage();
   const [mode, setMode] = useState(null); // 'request_callback' | 'send_message'
   const [form, setForm] = useState({ name: '', phone: '', message: '' });
@@ -16,6 +16,9 @@ function HandoffPanel({ practiceConfig, conversationId, reason, onClose }) {
     try {
       await api.requestHandoff({
         conversationId,
+        // The backend will only read this conversation's recorded urgency
+        // if the signed token proves the conversation is ours.
+        conversationToken,
         reason,
         type: mode,
         name: form.name,

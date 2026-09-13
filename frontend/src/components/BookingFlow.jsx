@@ -210,7 +210,13 @@ function BookingFlow({ practiceConfig, prefill, onClose, onBooked, conversationI
     setCancelError('');
     setCancelling(true);
     try {
-      await api.cancelAppointment(appointmentId, { conversationId });
+      // The reference the server issued at booking time. Without it the
+      // request is refused — an appointment id alone no longer authorises
+      // a cancellation.
+      await api.cancelAppointment(appointmentId, {
+        conversationId,
+        reference: bookedAppointment?.bookingReference,
+      });
       setCancelled(true);
     } catch (err) {
       setCancelError(err.message || 'Something went wrong cancelling your appointment.');
@@ -247,6 +253,7 @@ function BookingFlow({ practiceConfig, prefill, onClose, onBooked, conversationI
         date: rescheduleDate,
         time: rescheduleTime,
         conversationId,
+        reference: bookedAppointment?.bookingReference,
       });
       setBookedAppointment(res.data);
       setReschedulingUI(false);
