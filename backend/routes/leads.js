@@ -18,13 +18,11 @@ router.post('/leads', enforceMaxLengths(['name', 'phone', 'email', 'message']), 
   }
 });
 
-router.get('/leads', async (req, res) => {
-  try {
-    const leads = await leadRepository.findAll(req.practiceId);
-    res.json(leads);
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch leads' });
-  }
-});
+// GET /leads was removed in the Sept 2026 audit. It returned every lead in
+// the practice — name, phone, email and free-text message — from an
+// unauthenticated route, to anyone who sent the practice's id in a header.
+// Nothing in the frontend called it. Staff read leads through the
+// authenticated admin dashboard (routes/adminDashboard.js), which is where
+// any future list endpoint belongs.
 
 module.exports = router;

@@ -2,6 +2,7 @@ const express = require('express');
 const tools = require('../tools/receptionistTools');
 const conversationRepository = require('../repositories/ConversationRepository');
 const { enforceMaxLengths } = require('../middleware/validate');
+const { verifyConversationToken } = require('../services/conversations/conversationToken');
 
 const router = express.Router();
 
@@ -20,8 +21,13 @@ router.post('/handoff', enforceMaxLengths(['name', 'phone', 'message']), async (
     // Real, not invented: whatever urgency this conversation already has on
     // record from the deterministic classifier/AI (see routes/chat.js) —
     // surfaced to the admin dashboard's handoff queue (Phase 3 §9).
-    const urgency = conversationId
-      ? conversationRepository.getConversation(req.practice.practiceId, conversationId).slots.urgency
+    // Reading a conversation requires the signed token, not just its id.
+    // Without this, a forged id would both leak another patient's recorded
+    // urgency and — because getConversation creates on read — let anyone
+    // mint store entries from this route.
+    const verifiedConversationId = verifyConversationToken(req.body.conversationToken);
+    const urgency = verifiedConversationId
+      ? conversationRepository.getConversation(req.practice.practiceId, verifiedConversationId).slots.urgency
       : undefined;
 
     const handoff = await tools.request_human_handoff(req.practice, { conversationId, reason, type, name, phone, message, urgency });

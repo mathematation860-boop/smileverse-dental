@@ -29,11 +29,45 @@
 const AppointmentProvider = require('./AppointmentProvider');
 const availabilityService = require('../availabilityService');
 const googleCalendarLogic = require('./googleCalendarLogic');
-const { CalendarUnavailableError, SlotUnavailableError } = require('./CalendarProviderErrors');
+const crypto = require('crypto');
+const {
+  CalendarUnavailableError,
+  SlotUnavailableError,
+  BookingNotRecordedError,
+  BookingOutcomeUncertainError,
+  ChangeNotRecordedError,
+} = require('./CalendarProviderErrors');
 const { zonedWallTimeToUtc } = require('../../utils/timezone');
 const { createRealCalendarClient } = require('../calendar/googleCalendarClient');
 const defaultConnectionRepo = require('../../repositories/CalendarConnectionRepository');
 const defaultAppointmentRepo = require('../../repositories/AppointmentRepository');
+
+/**
+ * A client-chosen Google Calendar event id (base32hex, per Google's rule).
+ *
+ * This is what turns a timed-out insert from an unanswerable question into
+ * a recoverable one. Without it a timeout means "the event may or may not
+ * exist and there is no way to ask". With it, retrying the SAME id either
+ * creates the event or comes back 409 because our own first attempt
+ * already did — and either way we end up holding the one real event id.
+ */
+function generateCalendarEventId() {
+  const bytes = crypto.randomBytes(20);
+  let out = 'sv';
+  for (const b of bytes) out += 'abcdefghijklmnopqrstuv0123456789'[b % 32];
+  return out;
+}
+
+/** A failure where the request may or may not have reached Google. */
+function isAmbiguousFailure(err) {
+  const status = err?.code || err?.response?.status;
+  const name = String(err?.name || '');
+  const code = String(err?.code || '');
+  if (name === 'AbortError') return true;
+  if (/ETIMEDOUT|ECONNRESET|ECONNABORTED|EPIPE|ENOTFOUND|EAI_AGAIN/.test(code)) return true;
+  if (/timeout|socket hang up|network/i.test(String(err?.message || ''))) return true;
+  return status === 502 || status === 503 || status === 504;
+}
 
 function buildEventDescription(data) {
   const lines = [
@@ -132,14 +166,27 @@ class GoogleCalendarAppointmentProvider extends AppointmentProvider {
       end: { dateTime: window.endUtc.toISOString(), timeZone: 'UTC' },
     };
 
+    // Chosen here, not by Google, so the insert can be retried safely.
+    event.id = generateCalendarEventId();
+
     let created;
     try {
-      created = await this.calendarClient.insertEvent({
-        connection,
-        event,
-        onTokenRefreshed: (tokens) => this._persistRefreshedToken(practice, tokens),
-      });
+      created = await this._insertWithAmbiguityRecovery(practice, connection, event);
     } catch (err) {
+      if (isAmbiguousFailure(err)) {
+        // Both attempts were ambiguous. The event may exist. Saying
+        // "nothing has been reserved" here would be a guess in the
+        // dangerous direction — the patient rebooks and the clinic ends up
+        // with a blocked slot and a duplicate.
+        console.error(
+          `GoogleCalendarAppointmentProvider: UNCERTAIN — practice ${practice.practiceId} event ${event.id} may or may not exist (${err.message}).`
+        );
+        throw new BookingOutcomeUncertainError({
+          reason: 'calendar_timeout',
+          cause: err,
+          orphanedCalendarEventId: event.id,
+        });
+      }
       throw new CalendarUnavailableError('api_error', err);
     }
     if (!created || !created.id) {
@@ -148,13 +195,74 @@ class GoogleCalendarAppointmentProvider extends AppointmentProvider {
       throw new CalendarUnavailableError('api_error');
     }
 
-    // Only now — after Google Calendar actually confirmed the event —
-    // does a local appointment record get created at all.
-    return this.appointmentRepo.create(practice.practiceId, {
-      ...data,
-      calendarEventId: created.id,
-      calendarProvider: 'google',
-    });
+    // Only now — after Google Calendar actually confirmed the event — does
+    // a local appointment record get created at all.
+    //
+    // "Confirm first, persist second" leaves exactly one gap: the calendar
+    // write succeeds and the database write does not. Before this, that
+    // gap threw a raw error, told the patient the booking failed, and left
+    // a real event blocking a slot forever. The event is rolled back here
+    // before failure is reported — and if the rollback ALSO fails, the
+    // outcome is reported as uncertain rather than as a clean failure.
+    try {
+      return await this.appointmentRepo.create(practice.practiceId, {
+        ...data,
+        calendarEventId: created.id,
+        calendarProvider: 'google',
+      });
+    } catch (err) {
+      const orphanedCalendarEventId = await this._rollbackEvent(practice, connection, created.id);
+      if (orphanedCalendarEventId) {
+        throw new BookingOutcomeUncertainError({ reason: 'rollback_failed', cause: err, orphanedCalendarEventId });
+      }
+      throw new BookingNotRecordedError({ reason: 'persist_failed', cause: err });
+    }
+  }
+
+  /**
+   * Insert, and if the answer is ambiguous, ask again with the same event
+   * id rather than guessing.
+   *
+   * A timeout is the one failure where "did it happen?" has no answer from
+   * the error alone. Retrying a normal insert would risk booking the
+   * patient twice; retrying THIS one cannot, because the id is fixed —
+   * Google either creates it or says it already exists. Only ambiguous
+   * failures are retried; a 403 or a malformed request is a straight
+   * answer and is re-thrown immediately.
+   */
+  async _insertWithAmbiguityRecovery(practice, connection, event) {
+    const onTokenRefreshed = (tokens) => this._persistRefreshedToken(practice, tokens);
+    try {
+      return await this.calendarClient.insertEvent({ connection, event, onTokenRefreshed });
+    } catch (err) {
+      if (!isAmbiguousFailure(err)) throw err;
+      console.warn(
+        `GoogleCalendarAppointmentProvider: ambiguous calendar failure (${err.message}) — retrying event ${event.id} with the same id.`
+      );
+      return this.calendarClient.insertEvent({ connection, event, onTokenRefreshed });
+    }
+  }
+
+  /**
+   * Best-effort removal of an event we created but could not record.
+   * Returns null when the event is gone (clean rollback), or the event id
+   * when it could not be removed and a human must clean it up.
+   */
+  async _rollbackEvent(practice, connection, eventId) {
+    try {
+      await this.calendarClient.deleteEvent({
+        connection,
+        eventId,
+        onTokenRefreshed: (tokens) => this._persistRefreshedToken(practice, tokens),
+      });
+      return null;
+    } catch (rollbackErr) {
+      console.error(
+        `GoogleCalendarAppointmentProvider: ORPHANED CALENDAR EVENT — practice ${practice.practiceId} event ${eventId} ` +
+          `was created but neither recorded nor removed (${rollbackErr.message}). This slot is blocked until someone deletes it by hand.`
+      );
+      return eventId;
+    }
   }
 
   async rescheduleAppointment(practice, id, { date, time }) {
@@ -206,7 +314,22 @@ class GoogleCalendarAppointmentProvider extends AppointmentProvider {
       throw new CalendarUnavailableError('api_error', err);
     }
 
-    return this.appointmentRepo.update(practice.practiceId, id, { date: newDate, time: newTime, status: 'Rescheduled' });
+    // The calendar event has already moved. If the local record cannot be
+    // updated now, the two systems disagree and no honest "success" or
+    // "failure" answer exists — say so rather than pick one.
+    try {
+      return await this.appointmentRepo.update(practice.practiceId, id, {
+        date: newDate,
+        time: newTime,
+        status: 'Rescheduled',
+      });
+    } catch (err) {
+      console.error(
+        `GoogleCalendarAppointmentProvider: RECONCILE — practice ${practice.practiceId} appointment ${id} ` +
+          `was moved on the calendar but not in the database (${err.message}).`
+      );
+      throw new ChangeNotRecordedError({ operation: 'reschedule', cause: err, calendarEventId: appointment.calendarEventId });
+    }
   }
 
   async cancelAppointment(practice, id) {
@@ -226,7 +349,18 @@ class GoogleCalendarAppointmentProvider extends AppointmentProvider {
       }
     }
 
-    return this.appointmentRepo.update(practice.practiceId, id, { status: 'Cancelled' });
+    // Same asymmetry as reschedule: the event is already gone and cannot be
+    // un-deleted, so a failure here means the slot is free on the calendar
+    // while the record still reads Confirmed.
+    try {
+      return await this.appointmentRepo.update(practice.practiceId, id, { status: 'Cancelled' });
+    } catch (err) {
+      console.error(
+        `GoogleCalendarAppointmentProvider: RECONCILE — practice ${practice.practiceId} appointment ${id} ` +
+          `was removed from the calendar but is still Confirmed in the database (${err.message}).`
+      );
+      throw new ChangeNotRecordedError({ operation: 'cancel', cause: err, calendarEventId: appointment.calendarEventId });
+    }
   }
 
   async getAppointment(practice, id) {

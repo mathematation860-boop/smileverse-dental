@@ -28,7 +28,13 @@ const appointmentProviders = require('../services/providers');
 const insuranceService = require('../services/insuranceService');
 const handoffRepository = require('../repositories/HandoffRepository');
 const analyticsRepository = require('../repositories/AnalyticsRepository');
+const appointmentRepository = require('../repositories/AppointmentRepository');
 const notificationService = require('../services/notifications/notificationService');
+const {
+  generateBookingReference,
+  normalizeBookingReference,
+  referenceMatches,
+} = require('../services/appointments/bookingReference');
 
 function get_practice_info(practice) {
   const { practiceId, name, tagline, phone, email, address, website, timezone, hours, demoMode } = practice;
@@ -72,9 +78,51 @@ async function check_availability(practice, date, { durationMinutes } = {}) {
   return provider.getAvailability(practice, date, { durationMinutes });
 }
 
+/**
+ * Staff-side search by phone. Returns every matching appointment, so it
+ * must only ever be reached from an authenticated admin context — the
+ * public API uses lookup_appointment_for_patient below instead.
+ */
 async function search_appointments(practice, phone) {
   const provider = appointmentProviders.getAppointmentProvider(practice);
   return provider.searchAppointments(practice, phone);
+}
+
+/**
+ * Patient-side lookup: phone AND booking reference together. The phone
+ * narrows the search; the reference proves the person asking is the person
+ * who booked. Returns null for every kind of failure — wrong reference,
+ * wrong phone, no such appointment — so the answer cannot be used to work
+ * out which, and therefore cannot confirm that a phone number belongs to a
+ * patient here.
+ */
+async function lookup_appointment_for_patient(practice, phone, reference) {
+  const normalized = normalizeBookingReference(reference);
+  if (!phone || !normalized) return null;
+
+  const appointment = await appointmentRepository.findByPhoneAndReference(practice.practiceId, phone, normalized);
+  if (!appointment) return null;
+  if (!referenceMatches(normalized, appointment.bookingReference || '')) return null;
+  return appointment;
+}
+
+/**
+ * Ownership check for a change to one appointment: the id says which, the
+ * reference proves it is the caller's to change. Returns the appointment
+ * when access is granted, otherwise null.
+ */
+async function verify_patient_appointment_access(practice, appointmentId, reference) {
+  const normalized = normalizeBookingReference(reference);
+  if (!appointmentId || !normalized) return null;
+
+  const appointment = await appointmentRepository.findById(practice.practiceId, appointmentId);
+  if (!appointment) return null;
+  // An appointment booked before references existed has none. It cannot be
+  // changed through the public API at all — there is nothing to prove
+  // ownership with — and has to go through the front desk.
+  if (!appointment.bookingReference) return null;
+  if (!referenceMatches(normalized, appointment.bookingReference)) return null;
+  return appointment;
 }
 
 async function get_patient_appointment(practice, appointmentId) {
@@ -89,7 +137,13 @@ async function create_appointment(practice, data) {
   // too, and notifyAppointmentConfirmation below is never reached (Phase 5
   // spec §5: "Do not send confirmation until the appointment itself is
   // successfully created").
-  const appointment = await provider.createAppointment(practice, data);
+  const appointment = await provider.createAppointment(practice, {
+    ...data,
+    // Generated here rather than in the route, so a booking taken by phone
+    // or SMS gets one too — otherwise those patients would have no way to
+    // change their own appointment later.
+    bookingReference: data.bookingReference || generateBookingReference(),
+  });
 
   try {
     await notificationService.notifyAppointmentConfirmation(practice, appointment, { language: data.language || 'en' });
@@ -197,6 +251,8 @@ module.exports = {
   get_insurance_information,
   check_availability,
   search_appointments,
+  lookup_appointment_for_patient,
+  verify_patient_appointment_access,
   get_patient_appointment,
   create_appointment,
   reschedule_appointment,

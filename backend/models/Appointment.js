@@ -43,10 +43,28 @@ const appointmentSchema = new mongoose.Schema({
   // language at booking time (see tools/receptionistTools.js), never
   // guessed later. 'en' if never determined.
   language: { type: String, enum: ['en', 'ur'], default: 'en' },
+
+  // The patient's proof that this appointment is theirs. Generated at
+  // booking time, returned only in the booking response, and required
+  // alongside the phone number to look up, reschedule or cancel through
+  // the public API — see services/appointments/bookingReference.js for why
+  // a phone number alone is not an access check. Nullable because
+  // appointments booked before this change have none; those can only be
+  // managed through the authenticated admin routes.
+  bookingReference: { type: String, default: null },
 });
 
 // Every availability lookup filters by practiceId + date — index the pair.
 appointmentSchema.index({ practiceId: 1, date: 1 });
 appointmentSchema.index({ practiceId: 1, phone: 1 });
+
+// Non-unique, and deliberately so: this only makes the patient lookup
+// cheap enough that the rate limiter is the binding constraint. No unique
+// index is introduced by this hotfix — the double-booking and replay
+// indexes are a separate, still-unverified change (see the audit report).
+appointmentSchema.index(
+  { practiceId: 1, bookingReference: 1 },
+  { partialFilterExpression: { bookingReference: { $type: 'string' } } }
+);
 
 module.exports = mongoose.models.Appointment || mongoose.model('Appointment', appointmentSchema);

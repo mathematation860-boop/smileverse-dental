@@ -44,4 +44,14 @@ async function update(practiceId, id, patch) {
   return appointment;
 }
 
-module.exports = { create, findById, findByDate, findByPhone, findAll, update };
+/**
+ * Patient self-service lookup: phone AND reference must both match.
+ * Scoped by practiceId like everything else, so a reference issued by one
+ * practice is meaningless at another.
+ */
+async function findByPhoneAndReference(practiceId, phone, bookingReference) {
+  if (!phone || !bookingReference) return null;
+  return Appointment.findOne({ practiceId, phone, bookingReference });
+}
+
+module.exports = { create, findById, findByDate, findByPhone, findAll, update, findByPhoneAndReference };

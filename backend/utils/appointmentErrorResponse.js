@@ -7,7 +7,13 @@
  * the booking/cancel/reschedule calls themselves.
  */
 
-const { CalendarUnavailableError, SlotUnavailableError } = require('../services/providers/CalendarProviderErrors');
+const {
+  CalendarUnavailableError,
+  SlotUnavailableError,
+  BookingNotRecordedError,
+  BookingOutcomeUncertainError,
+  ChangeNotRecordedError,
+} = require('../services/providers/CalendarProviderErrors');
 // Phase 6: PMSUnavailableError extends CalendarUnavailableError directly
 // (see services/pms/PMSErrors.js's header comment) specifically so the
 // `instanceof CalendarUnavailableError` branch below already handles it
@@ -31,6 +37,38 @@ function handleAppointmentError(error, res, genericMessage) {
   }
   if (error instanceof SlotUnavailableError) {
     return res.status(409).json({ error: error.message, reason: error.reason });
+  }
+  // Three distinct outcomes, kept apart because collapsing them is how a
+  // patient gets told something false. 502 rather than 500 throughout: the
+  // fault is in the exchange with an upstream system, not in the request.
+  if (error instanceof BookingOutcomeUncertainError) {
+    console.error(
+      'Booking outcome UNCERTAIN:',
+      error.reason,
+      error.orphanedCalendarEventId ? `possible orphan event ${error.orphanedCalendarEventId}` : '',
+      error.cause?.message || ''
+    );
+    return res.status(502).json({
+      error: error.message,
+      reason: error.reason,
+      // Deliberately not `false`. We do not know, and the client must not
+      // render this as "nothing happened".
+      booked: 'unknown',
+      needsReconciliation: true,
+    });
+  }
+  if (error instanceof BookingNotRecordedError) {
+    console.error('Booking not recorded (calendar event rolled back):', error.reason, error.cause?.message || '');
+    return res.status(502).json({ error: error.message, reason: error.reason, booked: false });
+  }
+  if (error instanceof ChangeNotRecordedError) {
+    console.error('Change not recorded:', error.operation, error.cause?.message || '');
+    return res.status(502).json({
+      error: error.message,
+      reason: error.reason,
+      operation: error.operation,
+      needsReconciliation: true,
+    });
   }
   if (error instanceof MultiplePatientMatchError) {
     return res.status(409).json({ error: error.message, reason: error.reason, matchCount: error.matchCount });

@@ -17,6 +17,38 @@
 
 const conversations = new Map();
 
+// The store was unbounded: every unknown id seen by getConversation created
+// an entry and nothing ever removed it, so a long-running server grew
+// forever under normal traffic. Signed tokens (see
+// services/conversations/conversationToken.js) stop an attacker minting
+// entries at will, but ordinary traffic still needs a ceiling. Entries
+// older than the TTL are swept, and the map is capped by evicting the
+// oldest first. Both limits are generous next to a dental chat, which
+// lasts minutes.
+const CONVERSATION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+const MAX_CONVERSATIONS = 5000;
+
+function sweepExpired(nowMs) {
+  for (const [k, conv] of conversations) {
+    if (nowMs - new Date(conv.createdAt).getTime() > CONVERSATION_TTL_MS) {
+      conversations.delete(k);
+    }
+  }
+}
+
+// Called AFTER the new entry is inserted, so the map is trimmed back to the
+// cap rather than settling one above it.
+function enforceCap() {
+  if (conversations.size <= MAX_CONVERSATIONS) return;
+  // Map preserves insertion order, so the oldest entries come first.
+  const overBy = conversations.size - MAX_CONVERSATIONS;
+  let removed = 0;
+  for (const k of conversations.keys()) {
+    conversations.delete(k);
+    if (++removed >= overBy) break;
+  }
+}
+
 const EMPTY_SLOTS = () => ({
   serviceId: null,
   datePreference: null,
@@ -43,6 +75,7 @@ function key(practiceId, conversationId) {
 function getConversation(practiceId, conversationId) {
   const k = key(practiceId, conversationId);
   if (!conversations.has(k)) {
+    sweepExpired(Date.now());
     conversations.set(k, {
       practiceId,
       conversationId,
@@ -50,6 +83,7 @@ function getConversation(practiceId, conversationId) {
       slots: EMPTY_SLOTS(),
       createdAt: new Date().toISOString(),
     });
+    enforceCap();
   }
   return conversations.get(k);
 }
@@ -90,9 +124,17 @@ function listConversations(practiceId) {
   return results.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
 
+/** Test-only: empties the store so one test's conversations cannot affect another's. */
+function _reset() {
+  conversations.clear();
+}
+
 module.exports = {
   getConversation,
   appendMessage,
   updateSlots,
   listConversations,
+  _reset,
+  CONVERSATION_TTL_MS,
+  MAX_CONVERSATIONS,
 };

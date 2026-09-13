@@ -13,15 +13,27 @@
 const express = require('express');
 const receptionistEngine = require('../services/receptionistEngine');
 const { enforceMaxLengths } = require('../middleware/validate');
+const { resolveConversationToken } = require('../services/conversations/conversationToken');
 
 const router = express.Router();
 
 router.post('/chat', enforceMaxLengths(['chatMessage']), async (req, res) => {
   const message = req.body.message;
-  const conversationId = req.body.conversationId;
-  if (!message || !conversationId) {
-    return res.status(400).json({ error: 'conversationId and message are required' });
+  if (!message) {
+    return res.status(400).json({ error: 'message is required' });
   }
+
+  // Which conversation this is may ONLY come from a token this server
+  // issued and signed. The widget used to choose the id itself, from
+  // Date.now() — an enumerable value that let anyone reach another
+  // patient's stored history and slots through the assistant's own reply.
+  // A missing or forged token is replaced with a fresh, empty
+  // conversation rather than rejected: no error for a stale bundle, and
+  // no oracle for someone probing. See
+  // services/conversations/conversationToken.js.
+  const { token: conversationToken, conversationId } = resolveConversationToken(
+    req.body.conversationToken || req.body.conversationId
+  );
 
   try {
     const result = await receptionistEngine.understand({
@@ -41,6 +53,7 @@ router.post('/chat', enforceMaxLengths(['chatMessage']), async (req, res) => {
         reply: result.reply,
         replyUr: result.replyUr,
         conversationId,
+        conversationToken,
         intent: 'emergency',
         urgency: 'life_threatening',
         suggestedActions: result.suggestedActions,
@@ -67,6 +80,7 @@ router.post('/chat', enforceMaxLengths(['chatMessage']), async (req, res) => {
         reply: result.reply,
         replyUr: result.replyUr,
         conversationId,
+        conversationToken,
         intent: 'emergency',
         urgency: result.urgency,
         suggestedActions: result.suggestedActions,
@@ -79,6 +93,7 @@ router.post('/chat', enforceMaxLengths(['chatMessage']), async (req, res) => {
       message: result.reply, // backward-compatible field name
       reply: result.reply,
       conversationId,
+      conversationToken,
       intent: result.intent,
       urgency: result.urgency,
       suggestedActions: result.suggestedActions,

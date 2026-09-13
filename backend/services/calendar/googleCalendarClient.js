@@ -24,6 +24,21 @@
 const { calendar_v3 } = require('@googleapis/calendar');
 const googleOAuthClient = require('./googleOAuthClient');
 
+/**
+ * Every call to Google gets a deadline. Before this there was none, so a
+ * hung connection held the patient's booking request open until whatever
+ * the platform's own socket timeout happened to be — a spinner with no
+ * end, while the request kept a worker busy. The PMS client already did
+ * this (services/pms/OpenDentalPMSProvider.js); the calendar client did
+ * not, which is the gap this closes.
+ *
+ * The value is deliberately short. A booking is a foreground request with
+ * a person waiting, and a slow answer is worth less than a prompt "try
+ * again" — especially now that a timed-out insert is reconciled by event
+ * id rather than abandoned (see GoogleCalendarAppointmentProvider).
+ */
+const CALENDAR_TIMEOUT_MS = Number(process.env.CALENDAR_TIMEOUT_MS) || 10000;
+
 function calendarFor(connection, onTokenRefreshed) {
   const auth = googleOAuthClient.buildAuthorizedClient(connection, onTokenRefreshed);
   return new calendar_v3.Calendar({ auth });
@@ -34,28 +49,56 @@ function createRealCalendarClient() {
     /** Real busy intervals for `connection.calendarId` in [timeMinUtc, timeMaxUtc). */
     async getBusyIntervals({ connection, timeMinUtc, timeMaxUtc, onTokenRefreshed }) {
       const calendar = calendarFor(connection, onTokenRefreshed);
-      const res = await calendar.freebusy.query({
-        requestBody: {
-          timeMin: timeMinUtc.toISOString(),
-          timeMax: timeMaxUtc.toISOString(),
-          items: [{ id: connection.calendarId }],
+      const res = await calendar.freebusy.query(
+        {
+          requestBody: {
+            timeMin: timeMinUtc.toISOString(),
+            timeMax: timeMaxUtc.toISOString(),
+            items: [{ id: connection.calendarId }],
+          },
         },
-      });
+        { timeout: CALENDAR_TIMEOUT_MS }
+      );
       const busy = res.data?.calendars?.[connection.calendarId]?.busy || [];
       return busy.map((b) => ({ start: new Date(b.start), end: new Date(b.end) }));
     },
 
-    /** Creates a real event; returns { id } (plus whatever else Google returns) on success. Throws on any failure — never fabricates an id. */
+    /**
+     * Creates a real event; returns { id } on success. Throws on any
+     * failure — never fabricates an id.
+     *
+     * `event.id` may be supplied by the caller (Google allows a
+     * client-chosen event id). That is what makes a retry after a timeout
+     * safe: if the first attempt actually reached Google, the retry comes
+     * back 409 rather than creating a second event, and the caller can
+     * treat that 409 as "mine, already there". A 409 is surfaced as
+     * { alreadyExists: true } instead of an error so the provider does not
+     * have to sniff status codes.
+     */
     async insertEvent({ connection, event, onTokenRefreshed }) {
       const calendar = calendarFor(connection, onTokenRefreshed);
-      const res = await calendar.events.insert({ calendarId: connection.calendarId, requestBody: event });
-      return res.data;
+      try {
+        const res = await calendar.events.insert(
+          { calendarId: connection.calendarId, requestBody: event },
+          { timeout: CALENDAR_TIMEOUT_MS }
+        );
+        return res.data;
+      } catch (err) {
+        const status = err?.code || err?.response?.status;
+        if (status === 409 && event && event.id) {
+          return { id: event.id, alreadyExists: true };
+        }
+        throw err;
+      }
     },
 
     /** Updates an existing event's time (used for reschedule). */
     async patchEvent({ connection, eventId, patch, onTokenRefreshed }) {
       const calendar = calendarFor(connection, onTokenRefreshed);
-      const res = await calendar.events.patch({ calendarId: connection.calendarId, eventId, requestBody: patch });
+      const res = await calendar.events.patch(
+        { calendarId: connection.calendarId, eventId, requestBody: patch },
+        { timeout: CALENDAR_TIMEOUT_MS }
+      );
       return res.data;
     },
 
@@ -63,7 +106,7 @@ function createRealCalendarClient() {
     async deleteEvent({ connection, eventId, onTokenRefreshed }) {
       const calendar = calendarFor(connection, onTokenRefreshed);
       try {
-        await calendar.events.delete({ calendarId: connection.calendarId, eventId });
+        await calendar.events.delete({ calendarId: connection.calendarId, eventId }, { timeout: CALENDAR_TIMEOUT_MS });
       } catch (err) {
         const status = err?.code || err?.response?.status;
         if (status === 404 || status === 410) return { alreadyRemoved: true };
@@ -74,4 +117,4 @@ function createRealCalendarClient() {
   };
 }
 
-module.exports = { createRealCalendarClient };
+module.exports = { createRealCalendarClient, CALENDAR_TIMEOUT_MS };

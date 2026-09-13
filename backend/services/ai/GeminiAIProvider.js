@@ -128,20 +128,13 @@ function sentinelToNull(value) {
  * Intentionally simple/conservative: it only ever narrows what can slip
  * through, never rewrites or "corrects" the model's wording.
  */
-function findPriceMismatch(replyText, practice) {
-  if (!replyText) return null;
-  const validPrices = new Set(
-    (practice.services || [])
-      .filter((s) => s.price !== null && s.price !== undefined)
-      .map((s) => String(s.price))
-  );
-  const matches = replyText.match(/\$\s?\d+(?:\.\d{1,2})?/g) || [];
-  for (const raw of matches) {
-    const amount = raw.replace(/[$\s]/g, '').split('.')[0];
-    if (!validPrices.has(amount)) return raw;
-  }
-  return null;
-}
+// Delegates to services/ai/priceGuard.js. The check used to live here as a
+// flat "is this number one of our prices?" Set lookup, which accepted the
+// right price attached to the wrong treatment, dropped cents, and never
+// looked at the currency — see that file for the reasoning. Re-exported
+// unchanged so existing callers and tests keep the same contract.
+const { findPriceMismatch, inspectPrices } = require('./priceGuard');
+const { findBookingClaim, bookingClaimFallback } = require('./bookingClaimGuard');
 
 /**
  * Pure function: turns the model's raw response text into this provider's
@@ -176,8 +169,27 @@ function parseModelResponse(rawText, practice) {
     ? parsed.suggestedActions
     : ['none'];
 
+  // BOTH guards inspect what the model ACTUALLY said, before either one
+  // rewrites it. Running them in sequence over the already-replaced text
+  // would let the first guard hide the second's finding: a reply that both
+  // invented a price and announced a booking would be swapped for the
+  // price message, and the patient would be sent to the price list when
+  // what they need to know is that nothing was booked.
   const mismatch = findPriceMismatch(reply, practice);
-  if (mismatch) {
+
+  // The model cannot book anything — only the deterministic REST layer can
+  // — so a reply claiming a booking has happened is false by construction,
+  // whatever the conversation. Until now the only thing preventing it was
+  // an instruction in the system prompt. See services/ai/bookingClaimGuard.js.
+  const bookingClaim = findBookingClaim(reply);
+
+  // A falsely announced booking is the more consequential of the two: a
+  // patient who believes they hold a slot does not book one.
+  if (bookingClaim) {
+    console.warn(`Booking-claim guard: replaced a reply asserting a completed booking (matched "${bookingClaim}").`);
+    reply = bookingClaimFallback(language);
+    suggestedActions = ['book_appointment'];
+  } else if (mismatch) {
     reply = language === 'ur' ? PRICE_GUARD_FALLBACK_UR : PRICE_GUARD_FALLBACK_EN;
     suggestedActions = ['show_prices'];
   }
@@ -223,4 +235,6 @@ module.exports.INTENTS = INTENTS;
 module.exports.SUGGESTED_ACTIONS = SUGGESTED_ACTIONS;
 module.exports.parseModelResponse = parseModelResponse;
 module.exports.findPriceMismatch = findPriceMismatch;
+module.exports.inspectPrices = inspectPrices;
+module.exports.findBookingClaim = findBookingClaim;
 module.exports.slotsToKnownInfoBlock = slotsToKnownInfoBlock;
