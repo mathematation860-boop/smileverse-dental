@@ -1511,6 +1511,43 @@ button {
   justify-content: center;
 }
 
+/* Booking reference — the patient's only proof of ownership, so it has to
+   read as something to keep, not as another metadata row. */
+.sv-confirmation-reference {
+  margin: 16px 0 0;
+  padding: 14px 16px;
+  border: 1px dashed var(--sv-accent, #e8704a);
+  border-radius: 12px;
+  background: rgba(232, 112, 74, 0.06);
+  text-align: center;
+}
+
+.sv-reference-label {
+  display: block;
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sv-text-muted);
+}
+
+.sv-reference-code {
+  display: block;
+  margin: 6px 0 8px;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--sv-accent, #e8704a);
+  word-break: break-all;
+}
+
+.sv-reference-help {
+  display: block;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--sv-text-muted);
+}
+
 .sv-mock-notice {
   margin: 14px 0 0;
   font-size: 11.5px;

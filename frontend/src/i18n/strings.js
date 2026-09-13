@@ -87,6 +87,8 @@ const strings = {
       cancel: 'Cancel',
       cancelled: 'Appointment cancelled.',
       rescheduled: 'Appointment rescheduled.',
+      referenceLabel: 'Your booking reference',
+      referenceHelp: 'Save this. You will need it, with your phone number, to change or cancel this appointment later.',
       mockNotice: 'Demo booking — not yet connected to a real practice calendar.',
     },
     faq: {
@@ -213,6 +215,8 @@ const strings = {
       cancel: 'منسوخ کریں',
       cancelled: 'اپائنٹمنٹ منسوخ کر دی گئی۔',
       rescheduled: 'اپائنٹمنٹ کی تاریخ تبدیل کر دی گئی۔',
+      referenceLabel: 'آپ کا بکنگ ریفرنس',
+      referenceHelp: 'اسے محفوظ رکھیں۔ بعد میں اپائنٹمنٹ تبدیل یا منسوخ کرنے کے لیے یہ اور آپ کا فون نمبر درکار ہوگا۔',
       mockNotice: 'ڈیمو بکنگ — ابھی حقیقی کلینک کیلنڈر سے منسلک نہیں۔',
     },
     faq: {

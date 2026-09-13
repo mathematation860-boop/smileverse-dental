@@ -58,6 +58,25 @@ function ConfirmationCard({ appointment, clinic, durationMinutes, onReschedule, 
         </div>
       </div>
 
+      {/*
+        The booking reference is the ONLY thing that proves this appointment
+        is the patient's: since the September 2026 security fix, an
+        appointment id alone no longer authorises a change or a cancellation
+        (backend routes/appointments.js). It was already being sent with the
+        Reschedule and Cancel calls on this card, but it was never shown —
+        so the moment the patient closed the tab, the reference was gone
+        with the React state and POST /api/appointments/lookup (phone +
+        reference) became unusable for them. Showing it is what makes that
+        recovery path real rather than theoretical.
+      */}
+      {appointment.bookingReference && (
+        <div className="sv-confirmation-reference">
+          <span className="sv-reference-label">{t.booking.referenceLabel}</span>
+          <code className="sv-reference-code">{appointment.bookingReference}</code>
+          <span className="sv-reference-help">{t.booking.referenceHelp}</span>
+        </div>
+      )}
+
       <div className="sv-confirmation-actions">
         {calendarUrl && (
           <a className="sv-btn sv-btn-confirm sv-btn-small" href={calendarUrl} target="_blank" rel="noreferrer">
